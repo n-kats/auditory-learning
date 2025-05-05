@@ -14,7 +14,7 @@
 * linux（他環境での動作確認無し。wslでもいけるかも。arm/macは怪しい。）
 
 ### 事前準備(voicevox-engine)
-![voicevox-engine](https://github.com/VOICEVOX/voicevox_engine) を利用します。
+[voicevox-engine](https://github.com/VOICEVOX/voicevox_engine) を利用します。
 以下が実行例です。
 
 #### gpu版の場合（十分なgpu環境設定が必要）
@@ -55,5 +55,6 @@ $ bash ./scripts/launch.sh
 
 
 ## 制限
-* 現在対応しているモデルは gpt-4o のみです。
+* モデルは gpt-4o 固定です。
+* 音声は ずんだもん 固定です。
 * PDFのURLは公開されているものに限ります。ローカルファイルをアップロードすることはできません。
