@@ -7,7 +7,7 @@ function AudioControl({volume, setVolume, speaking, setSpeaking}: {volume: numbe
 
   return (
     <>
-      <Text>Volume</Text>
+      <Text>音量</Text>
       <Slider
       label="Volume"
       value={volume}
@@ -17,7 +17,7 @@ function AudioControl({volume, setVolume, speaking, setSpeaking}: {volume: numbe
       step={0.01}
       thumbSize={14}
     ></Slider>
-    <Button onClick={() => {setSpeaking(!speaking)}}>{speaking ? 'Stop' : 'Start'}</Button>
+    <Button onClick={() => {setSpeaking(!speaking)}}>{speaking ? '停止する' : '再生する'}</Button>
 </>)
 }
 

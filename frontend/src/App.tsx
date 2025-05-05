@@ -132,6 +132,12 @@ export default function DocumentViewer() {
     }
   }, [pageNum, maxPageNum, requestId, autoAdvance])
 
+  useEffect(() => {
+    if (audioRef.current) {
+      setSpeakingToAudio(speaking)
+    }
+  }, [audioUrl, speaking])
+
   return (
     <MantineProvider theme={theme}>
       <Container ref={containerRef}>
@@ -146,16 +152,21 @@ export default function DocumentViewer() {
             }} />
 
             <Flex gap="xs">
-              <Button onClick={() => changePage(pageNum - 1)} disabled={isFirstPage()}>Previous</Button>
-              <Button onClick={() => changePage(pageNum + 1)} disabled={isLastPage()}>Next</Button>
-              <Button onClick={() => changePage(Math.floor(Math.random() * maxPageNum) + 1)}>Random</Button>
+              <Button onClick={() => changePage(pageNum - 1)} disabled={isFirstPage()}>前ページ</Button>
+              <Button onClick={() => changePage(pageNum + 1)} disabled={isLastPage()}>次ページ</Button>
+              <Button onClick={() => changePage(Math.floor(Math.random() * maxPageNum) + 1)}>ランダム</Button>
+              <Checkbox
+                label="常に次のページへ"
+                checked={autoAdvance}
+                onChange={(event) => setAutoAdvance(event.currentTarget.checked)}
+              />
             </Flex>
 
             {isInitialized && <>
               <Text>Page: {pageNum} / {maxPageNum} </Text>
               <Flex gap="xs">
                 <Input type="number" value={gotoPage} onChange={(event) => setGotoPage(parseInt(event.currentTarget.value))} />
-                <Button onClick={() => changePage(gotoPage)} disabled={!isValidPage(gotoPage)}>Go to page</Button>
+                <Button onClick={() => changePage(gotoPage)} disabled={!isValidPage(gotoPage)}>指定したページへ</Button>
               </Flex></>}
           </Grid.Col>
 
@@ -173,12 +184,6 @@ export default function DocumentViewer() {
 
             <Flex gap="xs">
               <Button onClick={() => regenerate(requestId, pageNum)}>再生成</Button>
-
-              <Checkbox
-                label="常に次のページへ"
-                checked={autoAdvance}
-                onChange={(event) => setAutoAdvance(event.currentTarget.checked)}
-              />
             </Flex>
           </Grid.Col>
         </Grid>

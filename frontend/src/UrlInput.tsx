@@ -47,7 +47,7 @@ function UrlInput({ onGetResult }: { onGetResult: (result: UrlInputGetResultProp
         {...form.getInputProps('url')}
       />
       <Group justify="flex-end" mt="md">
-        <Button type="submit">Submit</Button>
+        <Button type="submit">開始</Button>
       </Group>
     </form>
 
