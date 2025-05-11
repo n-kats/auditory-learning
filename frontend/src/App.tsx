@@ -35,6 +35,7 @@ export default function DocumentViewer() {
         error = true
       }
     })
+
     const runImage = client.image(reqId, page).then((imageUrl: string | null) => {
       if (imageUrl !== null) {
         setImageUrl(imageUrl)
@@ -46,8 +47,6 @@ export default function DocumentViewer() {
     await client.audio(reqId, page).then((audioUrl: string | null) => {
       if (audioUrl !== null) {
         setAudioUrl(audioUrl)
-        setVolumeToAudio(volume)
-        setSpeakingToAudio(speaking)
       } else {
         error = true
       }
@@ -61,23 +60,6 @@ export default function DocumentViewer() {
 
   const fetchExplanationAndImage = async (reqId: string, page: number) => {
     return generate(reqId, page, false)
-  }
-
-  const setVolumeToAudio = (value: number) => {
-    if (audioRef.current) {
-      audioRef.current.volume = value
-    }
-  }
-
-  const setSpeakingToAudio = (value: boolean) => {
-    setSpeaking(value)
-    if (audioRef.current) {
-      if (value) {
-        audioRef.current.play()
-      } else {
-        audioRef.current.pause()
-      }
-    }
   }
 
   const isFirstPage = () => pageNum === 1
@@ -111,7 +93,7 @@ export default function DocumentViewer() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [pageNum, maxPageNum, requestId, isInitialized, volume, speaking])
+  }, [pageNum, isInitialized])
 
   useEffect(() => {
     const handleAudioEnded = () => {
@@ -130,13 +112,43 @@ export default function DocumentViewer() {
         audioElement.removeEventListener('ended', handleAudioEnded)
       }
     }
-  }, [pageNum, maxPageNum, requestId, autoAdvance])
+  }, [pageNum, requestId, autoAdvance, audioRef])
 
   useEffect(() => {
     if (audioRef.current) {
-      setSpeakingToAudio(speaking)
+      if (speaking) {
+        audioRef.current.play()
+      } else {
+        audioRef.current.pause()
+      }
     }
-  }, [audioUrl, speaking])
+  }, [speaking])
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume
+    }
+  }, [volume])
+
+  useEffect(() => {
+    const audioElement = audioRef.current;
+    if (audioElement) {
+      const handlePlay = () => setSpeaking(true);
+      const handlePause = () => {
+        if (!(audioElement.ended && autoAdvance && !isLastPage())) {
+          setSpeaking(false);
+        }
+      }
+
+      audioElement.addEventListener('play', handlePlay);
+      audioElement.addEventListener('pause', handlePause);
+
+      return () => {
+        audioElement.removeEventListener('play', handlePlay);
+        audioElement.removeEventListener('pause', handlePause);
+      };
+    }
+  }, [audioRef]);
 
   return (
     <MantineProvider theme={theme}>
@@ -174,12 +186,9 @@ export default function DocumentViewer() {
             <audio ref={audioRef} src={audioUrl} autoPlay></audio>
             <AudioControl
               volume={volume}
-              setVolume={(value: number) => {
-                setVolume(value)
-                setVolumeToAudio(value)
-              }}
+              setVolume={setVolume}
               speaking={speaking}
-              setSpeaking={setSpeakingToAudio}
+              setSpeaking={setSpeaking}
             />
 
             <Flex gap="xs">
