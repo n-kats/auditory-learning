@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   ca-certificates \
   language-pack-ja \
+  fonts-ipaexfont \
+  fonts-noto-cjk \
+  ghostscript \
   make \
   nodejs \
   npm \
