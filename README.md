@@ -19,15 +19,14 @@
 
 #### gpu版の場合（十分なgpu環境設定が必要）
 ```
-gpus all -d --rm \
+docker run --gpus all -d --rm \
   -p 50021:50021 \
-  --gpus all \
   voicevox/voicevox_engine:nvidia-latest
 ```
 
 #### cpu版の場合
 ```
-gpus all -d --rm \
+docker run -d --rm \
   -p 50021:50021 \
   voicevox/voicevox_engine:cpu-latest
 ```
