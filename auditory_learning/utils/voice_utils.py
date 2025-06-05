@@ -57,7 +57,7 @@ class VoiceVoxSpeaker:
 
         synthesis_response = httpx.post(
             f"{self.url}/synthesis?speaker={self.speaker_id}",
-            headers={"Context-Type": "application/json"},
+            headers={"Content-Type": "application/json"},
             data=synthesis_config.as_bytes(),
         )
         if not (200 <= synthesis_response.status_code < 300):
