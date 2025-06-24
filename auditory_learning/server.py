@@ -137,7 +137,7 @@ def generate_explanation(image_path):
             }
         ],
         json_mode=False,
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
     )
     return response
 
