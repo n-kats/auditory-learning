@@ -1,7 +1,9 @@
 import json
 import os
 import sys
+import threading
 from pathlib import Path
+from queue import Queue
 from uuid import uuid4
 
 import fastapi
@@ -32,8 +34,7 @@ else:
 frontend_dir = (Path(__file__).parent.parent / "frontend").resolve()
 app.mount("/static", StaticFiles(directory=frontend_dir / "dist"), name="static")
 app.mount("/assets", StaticFiles(directory=frontend_dir / "dist/assets/"))
-prompt_path = Path(os.environ.get(
-    "AUDITORY_LEARNING_PROMPT_PATH", "prompt.txt"))
+prompt_path = Path(os.environ.get("AUDITORY_LEARNING_PROMPT_PATH", "prompt.txt"))
 
 
 @app.get("/")
@@ -65,7 +66,7 @@ def init(req: InitRequest) -> InitResponse:
     work_dir.mkdir(parents=True, exist_ok=True)
     image_dir.mkdir(parents=True, exist_ok=True)
     if not pdf_path.exists():
-        print(f"[INFO] Download PDF from {req.url}", sys.stderr)
+        print(f"[INFO] Download PDF from {req.url}", file=sys.stderr)
         pdf_path.write_bytes(httpx.get(req.url).content)
     pages = convert_from_path(pdf_path)
     for i, page in enumerate(pages, start=1):
@@ -107,15 +108,27 @@ speaker = VoiceVoxSpeaker(
 
 @app.post("/explain/")
 def explain(req: ExplainRequest) -> ExplainResponse:
+    image_path = data_dir / req.request_id / "images" / f"{req.page:04d}.png"
     cache_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
-    if cache_path.exists():
+    audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
+
+    if image_path.exists() and cache_path.exists() and audio_path.exists():
         return ExplainResponse(explanation=cache_path.read_text())
 
-    image_path = data_dir / req.request_id / "images" / f"{req.page:04d}.png"
-    explanation = generate_explanation(image_path)
-    cache_path.write_text(explanation)
-    audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
-    text_to_wav(explanation, speaker, audio_path)
+    explanation = generate_explanation_through_queue(
+        f"{req.request_id}:{req.page:04d}",
+        (image_path, cache_path, audio_path),
+    )
+
+    next_image_path = data_dir / req.request_id / "images" / f"{req.page + 1:04d}.png"
+    if next_image_path.exists():
+        next_cache_path = data_dir / req.request_id / f"explain_{req.page + 1:04d}.txt"
+        next_audio_path = data_dir / req.request_id / f"explain_{req.page + 1:04d}.mp3"
+        if not (next_cache_path.exists() and next_audio_path.exists()):
+            _ = reserve_generation(
+                f"{req.request_id}:{req.page + 1:04d}",
+                (next_image_path, next_cache_path, next_audio_path),
+            )
 
     return ExplainResponse(explanation=explanation)
 
@@ -145,12 +158,61 @@ def generate_explanation(image_path):
     return response
 
 
+generation_queue: Queue[tuple[str, tuple[Path, Path, Path]]] = Queue()
+request_queues: dict[str, list[Queue]] = {}
+request_queues_lock = threading.Lock()
+
+
+def worker(fn, input_queue: Queue, output_queues: dict[str, list[Queue]]):
+    while True:
+        key, input_ = input_queue.get()
+        if key not in output_queues:
+            continue
+
+        result = fn(key, *input_)
+        if key in output_queues:
+            with request_queues_lock:
+                for output_queue in output_queues[key]:
+                    output_queue.put(result)
+                del output_queues[key]
+        else:
+            print(f"[ERROR] No output queue for key: {key}", file=sys.stderr)
+
+
+def generation_task(task_id: str, image_path: Path, cache_path: Path, audio_path: Path) -> str:
+    print(f"[INFO] Generating explanation for {image_path}", file=sys.stderr)
+    explanation = generate_explanation(image_path)
+    cache_path.write_text(explanation)
+    text_to_wav(explanation, speaker, audio_path)
+    print(f"[INFO] Finished generating explanation for {image_path}", file=sys.stderr)
+    print(f"[INFO] Explanation saved to {cache_path}", file=sys.stderr)
+    print(f"[INFO] Audio saved to {audio_path}", file=sys.stderr)
+    return explanation
+
+
+threading.Thread(target=worker, args=(generation_task, generation_queue, request_queues), daemon=True).start()
+
+
+def reserve_generation(task_id: str, args: tuple[Path, Path, Path]) -> Queue[str]:
+    queue = Queue()
+    with request_queues_lock:
+        if task_id not in request_queues:
+            request_queues[task_id] = []
+        request_queues[task_id].append(queue)
+    generation_queue.put((task_id, args))
+    return queue
+
+
+def generate_explanation_through_queue(task_id: str, args) -> str:
+    queue = reserve_generation(task_id, args)
+    return queue.get()
+
+
 @app.post("/audio/")
 def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
     if not audio_path.exists():
-        explanation_path = data_dir / req.request_id / \
-            f"explain_{req.page:04d}.txt"
+        explanation_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
         explanation = explanation_path.read_text()
         text_to_wav(explanation, speaker, audio_path)
     return fastapi.responses.FileResponse(audio_path)
@@ -159,10 +221,11 @@ def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
 @app.post("/regenerate/")
 def regenerate(req: ExplainRequest) -> ExplainResponse:
     image_path = data_dir / req.request_id / "images" / f"{req.page:04d}.png"
-    explanation = generate_explanation(image_path)
     cache_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
-    cache_path.write_text(explanation)
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
-    text_to_wav(explanation, speaker, audio_path)
+    explanation = generate_explanation_through_queue(
+        f"{req.request_id}:{req.page:04d}",
+        (image_path, cache_path, audio_path),
+    )
 
     return ExplainResponse(explanation=explanation)
