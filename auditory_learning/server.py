@@ -113,12 +113,12 @@ def explain(req: ExplainRequest) -> ExplainResponse:
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
 
     if image_path.exists() and cache_path.exists() and audio_path.exists():
-        return ExplainResponse(explanation=cache_path.read_text())
-
-    explanation = generate_explanation_through_queue(
-        f"{req.request_id}:{req.page:04d}",
-        (image_path, cache_path, audio_path),
-    )
+        explanation = cache_path.read_text()
+    else:
+        explanation = generate_explanation_through_queue(
+            f"{req.request_id}:{req.page:04d}",
+            (image_path, cache_path, audio_path),
+        )
 
     next_image_path = data_dir / req.request_id / "images" / f"{req.page + 1:04d}.png"
     if next_image_path.exists():
