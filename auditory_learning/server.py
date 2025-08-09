@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 from uuid import uuid4
@@ -31,6 +32,8 @@ else:
 frontend_dir = (Path(__file__).parent.parent / "frontend").resolve()
 app.mount("/static", StaticFiles(directory=frontend_dir / "dist"), name="static")
 app.mount("/assets", StaticFiles(directory=frontend_dir / "dist/assets/"))
+prompt_path = Path(os.environ.get(
+    "AUDITORY_LEARNING_PROMPT_PATH", "prompt.txt"))
 
 
 @app.get("/")
@@ -121,7 +124,7 @@ def generate_explanation(image_path):
     image = Image.open(image_path)
     image_type = "png"
     image_content = to_image_content(image, image_type)
-    prompt = "これは論文のあるページです。このページに書かれている内容を説明してください。謝辞・参考文献リストはスルーしてください。TeX形式の数式は **必ず** $で囲んでください。"  # noqa: E501
+    prompt = prompt_path.read_text().strip()
     response = run_gpt_4o(
         client,
         messages=[
@@ -137,7 +140,7 @@ def generate_explanation(image_path):
             }
         ],
         json_mode=False,
-        model="gpt-4.1-mini",
+        model="gpt-5-mini",
     )
     return response
 
@@ -146,7 +149,8 @@ def generate_explanation(image_path):
 def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
     if not audio_path.exists():
-        explanation_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
+        explanation_path = data_dir / req.request_id / \
+            f"explain_{req.page:04d}.txt"
         explanation = explanation_path.read_text()
         text_to_wav(explanation, speaker, audio_path)
     return fastapi.responses.FileResponse(audio_path)
