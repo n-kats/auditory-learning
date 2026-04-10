@@ -1,0 +1,51 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: quick_auditory_learning
+      POSTGRES_USER: quick_auditory_learning
+      POSTGRES_PASSWORD: quick_auditory_learning
+    volumes:
+      - ${QUICK_AUDITORY_LEARNING_DATA_DIR_HOST:-../_data/quick_auditory_learning}/postgres:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend/docker
+    depends_on:
+      - db
+      - voicevox
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      QUICK_AUDITORY_LEARNING_OPENAI_API_KEY: ${QUICK_AUDITORY_LEARNING_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}
+      QUICK_AUDITORY_LEARNING_DATA_DIR: ${QUICK_AUDITORY_LEARNING_DATA_DIR:-/workspace/_data/quick_auditory_learning}
+      QUICK_AUDITORY_LEARNING_CACHE_DIR: ${QUICK_AUDITORY_LEARNING_CACHE_DIR:-/workspace/_cache/quick-auditory-learning}
+      QUICK_AUDITORY_LEARNING_LOG_DIR: ${QUICK_AUDITORY_LEARNING_LOG_DIR:-/workspace/_tmp/quick_auditory_learning/logs}
+      QUICK_AUDITORY_LEARNING_POSTGRES_DSN: ${QUICK_AUDITORY_LEARNING_POSTGRES_DSN:-postgresql://quick_auditory_learning:quick_auditory_learning@db:5432/quick_auditory_learning}
+      QUICK_AUDITORY_LEARNING_JSONL_PATH: ${QUICK_AUDITORY_LEARNING_JSONL_PATH:-/workspace/_data/quick_auditory_learning/arxiv.jsonl}
+      QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME: ${QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME:-text-embedding-3-large}
+      QUICK_AUDITORY_LEARNING_VOICEVOX_URL: ${QUICK_AUDITORY_LEARNING_VOICEVOX_URL:-http://voicevox:50021}
+      QUICK_AUDITORY_LEARNING_FRONTEND_URL: http://${QUICK_AUDITORY_LEARNING_HOST:-localhost}:${QUICK_AUDITORY_LEARNING_FRONTEND_PORT:-5173}
+    volumes:
+      - ..:/workspace
+      - ${QUICK_AUDITORY_LEARNING_CACHE_DIR_HOST:-../_cache/quick-auditory-learning}/backend/uv_venv:/workspace/quick-auditory-learning/backend/.venv
+      - ${QUICK_AUDITORY_LEARNING_JSONL_DIR_HOST:-../_data/quick_auditory_learning}:${QUICK_AUDITORY_LEARNING_JSONL_DIR_HOST:-../_data/quick_auditory_learning}:ro
+    ports:
+      - "${QUICK_AUDITORY_LEARNING_BACKEND_PORT:-8000}:8000"
+    command: bash -lc "cd /workspace/quick-auditory-learning/backend && uv sync && uv run uvicorn quick_auditory_learning.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: ./frontend/docker
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://${QUICK_AUDITORY_LEARNING_HOST:-localhost}:${QUICK_AUDITORY_LEARNING_BACKEND_PORT:-8000}
+      VITE_QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME: ${QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME:-text-embedding-3-large}
+    volumes:
+      - ..:/workspace
+      - ${QUICK_AUDITORY_LEARNING_CACHE_DIR_HOST:-../_cache/quick-auditory-learning}/frontend/node_modules:/workspace/quick-auditory-learning/frontend/node_modules
+    ports:
+      - "${QUICK_AUDITORY_LEARNING_FRONTEND_PORT:-5173}:5173"
+
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-latest

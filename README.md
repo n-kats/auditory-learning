@@ -6,6 +6,8 @@
 
 ![image](docs/images/screenshot.png)
 
+別系統の実験用アプリとして `quick-auditory-learning/` も置いています。arXiv の JSONL アブスト一覧を扱う大量再生向けの構成はそちらを参照してください。
+
 
 ## 使い方
 ### 想定環境

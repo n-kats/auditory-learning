@@ -1,0 +1,35 @@
+# Directory Structure
+
+## バックエンド
+- `auditory_learning/server.py`: FastAPI エントリーポイント。画像生成と VOICEVOX 合成を順序制御。
+- `auditory_learning/utils/`: GPT プロンプト処理や音声変換の補助モジュール。共通ロジックはここへ集約。
+- `_data/`: PDF、画像、音声などの実行時キャッシュ。削除可能だがコミット禁止。
+- `quick-auditory-learning/`: arXiv JSONL ベースの別系統アプリのプロジェクトルート。
+- `quick-auditory-learning/backend/src/quick_auditory_learning/`: arXiv JSONL 取り込みと検索、音声再生を扱う別系統の FastAPI 実装本体。
+- `quick-auditory-learning/backend/docker/`: quick プロジェクト用の backend イメージ定義を置く。
+- `quick-auditory-learning/frontend/`: quick プロジェクト用の React + Vite 実装本体。
+- `quick-auditory-learning/frontend/docker/`: quick プロジェクト用の frontend イメージ定義を置く。
+- `quick-auditory-learning/docker-compose.yml`: quick プロジェクトの起動定義。
+- `_data/quick_auditory_learning/`: quick プロジェクト専用の永続データ。JSONL インポート管理や Postgres データの置き場。
+- `_cache/quick-auditory-learning/`: quick プロジェクト専用のキャッシュ。venv や音声キャッシュを置く。
+- `_tmp/quick_auditory_learning/logs/`: quick プロジェクト専用の実行ログ。backend のファイルログを置く。
+
+## フロントエンド
+- `frontend/src/`: React + Mantine UI の実装。状態管理や API 呼び出しをここで完結させる。
+- `frontend/dist/`: `npm run build` で生成される静的成果物。手動編集禁止。
+
+## ツールとスクリプト
+- `scripts/launch.sh`: Docker ビルドとサーバ起動のエントリ。CI 相当の再現手順。
+- `scripts/serve.sh`: ローカル用の uv 同期と frontend ビルドを束ねる。
+- `scripts/launch_quick_auditory_learning.sh`: quick プロジェクト用の Docker Compose 起動エントリ。
+- `scripts/down_quick_auditory_learning.sh`: quick プロジェクト用の Docker Compose 停止エントリ。
+- `Makefile`: lint/format/test の共通コマンド。
+
+## ドキュメント
+- `docs/images/`: UI スクリーンショット等のアセット。
+- `docs/spec/`: 仕様を置く。近い機能の仕様をまとめてよい。
+- `docs/how_to/`: 手順を置く。`how_to_<項目名>.md` の形式で作成する。
+- `docs/coding_rule/`: コーディング規約を置く。言語別の規約、命名、フォーマット、例外方針を整理する。
+- `docs/web/`: 外部参照ログを置く。外部情報の参照記録を残す。
+- `docs/workflows/`: ExecPlan、再開手順、サンプル更新などのワークフローガイド群。
+- `_worklist/`: 作業ログ、TODO、決定事項、未決、確認手順を置く。作業単位で更新する。
