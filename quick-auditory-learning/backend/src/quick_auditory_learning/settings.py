@@ -1,7 +1,9 @@
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from quick_auditory_learning.costs import SUPPORTED_COMPLETION_MODEL_NAMES
 
 
 class Settings(BaseSettings):
@@ -17,7 +19,10 @@ class Settings(BaseSettings):
     )
     jsonl_path: Path | None = None
     embedding_model_name: str = "text-embedding-3-large"
-    explanation_model: str = "gpt-5.4-nano"
+    llm_model: str = Field(
+        default="gpt-5.4-nano",
+        validation_alias=AliasChoices("QUICK_AUDITORY_LEARNING_LLM_MODEL"),
+    )
     frontend_url: str | None = None
     voicevox_url: str = Field(
         default="http://voicevox:50021",
@@ -35,6 +40,14 @@ class Settings(BaseSettings):
         default=1.0,
         validation_alias=AliasChoices("VOICEVOX_VOLUME_SCALE", "QUICK_AUDITORY_LEARNING_VOICEVOX_VOLUME_SCALE"),
     )
+
+    @field_validator("llm_model")
+    @classmethod
+    def validate_llm_model(cls, value: str) -> str:
+        if value not in SUPPORTED_COMPLETION_MODEL_NAMES:
+            supported = ", ".join(sorted(SUPPORTED_COMPLETION_MODEL_NAMES))
+            raise ValueError(f"QUICK_AUDITORY_LEARNING_LLM_MODEL must be one of: {supported}")
+        return value
 
 
 settings = Settings()

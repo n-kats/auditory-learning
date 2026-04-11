@@ -71,6 +71,12 @@
 - README の `.env` 一覧で `OPENAI_API_KEY` と代替キーの関係が分かるようにした
 - README の `OPENAI_API_KEY` の必須表記を、どちらか一方が必須という形に直した
 - README の `OPENAI_API_KEY` 必須行に `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` の優先順位をまとめた
+- `QUICK_AUDITORY_LEARNING_EXPLANATION_MODEL` を compose から backend に渡すようにした
+- README に解説生成モデルの切り替え項目を追加した
+- README の `.env` 各変数説明に規定値を併記した
+- `QUICK_AUDITORY_LEARNING_EXPLANATION_MODEL` を完全に削除し、`QUICK_AUDITORY_LEARNING_LLM_MODEL` に統一した
+- `QUICK_AUDITORY_LEARNING_LLM_MODEL` のコスト計算可能モデル制約を単体テストで固定した
+- README の `QUICK_AUDITORY_LEARNING_LLM_MODEL` 値一覧を `.env` 節から分離した
 
 ## 確認済み
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'session_stream_broadcasts_next_to_two_clients or session_stream_binds_resume_even_when_no_events_are_returned or session_stream_sends_start_events_before_pending_search_updates or session_stream_emits_start_flow_events'`
@@ -81,3 +87,4 @@
 - `cd /workspace/quick-auditory-learning/frontend && npm test -- --run playbackStartedSync.test.ts sessionMessageHandlers.test.ts sessionViewState.test.ts sessionOperationState.test.ts appSessionState.test.ts sessionReplay.test.ts sessionCommands.test.ts`
 - `cd /workspace/quick-auditory-learning/frontend && npm test -- --run playbackStartedSync.test.ts sessionMessageHandlers.test.ts sessionViewState.test.ts sessionOperationState.test.ts appSessionState.test.ts sessionReplay.test.ts sessionCommands.test.ts`
 - `cd /workspace/quick-auditory-learning/frontend && npx tsc --noEmit`
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'settings_accepts_llm_model_alias or settings_rejects_unsupported_llm_model'`

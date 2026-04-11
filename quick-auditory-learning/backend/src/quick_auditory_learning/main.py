@@ -1090,7 +1090,7 @@ def _paper_search_payload(
             executor.submit(
                 generate_search_keyword,
                 make_client(settings.openai_api_key),
-                settings.explanation_model,
+                settings.llm_model,
                 paper.title,
                 paper.abstract,
             )
@@ -1101,7 +1101,7 @@ def _paper_search_payload(
             executor.submit(
                 generate_fulltext_query,
                 make_client(settings.openai_api_key),
-                settings.explanation_model,
+                settings.llm_model,
                 paper.title,
                 paper.abstract,
             )
@@ -1162,14 +1162,14 @@ def _paper_search_payload(
             elapsed_ms=keyword_result.elapsed_ms,
             estimated_cost_usd=float(
                 estimate_completion_cost_usd(
-                    settings.explanation_model,
+                    settings.llm_model,
                     keyword_result.input_tokens,
                     keyword_result.output_tokens,
                 )
             ),
             detail={
                 "source_paper_id": paper.id,
-                "model_name": settings.explanation_model,
+                "model_name": settings.llm_model,
                 "input_tokens": keyword_result.input_tokens,
                 "output_tokens": keyword_result.output_tokens,
             },
@@ -1189,14 +1189,14 @@ def _paper_search_payload(
             elapsed_ms=fulltext_result.elapsed_ms,
             estimated_cost_usd=float(
                 estimate_completion_cost_usd(
-                    settings.explanation_model,
+                    settings.llm_model,
                     fulltext_result.input_tokens,
                     fulltext_result.output_tokens,
                 )
             ),
             detail={
                 "source_paper_id": paper.id,
-                "model_name": settings.explanation_model,
+                "model_name": settings.llm_model,
                 "input_tokens": fulltext_result.input_tokens,
                 "output_tokens": fulltext_result.output_tokens,
             },
@@ -1983,7 +1983,7 @@ def generate_explanation(
         started_at = datetime.now(UTC)
         started_perf = perf_counter()
         response = client.responses.create(
-            model=settings.explanation_model,
+            model=settings.llm_model,
             input=prompt,
             reasoning={"effort": "none"},
         )
@@ -2002,17 +2002,17 @@ def generate_explanation(
                 started_at,
                 finished_at,
                 elapsed_ms,
-                float(estimate_completion_cost_usd(settings.explanation_model, input_tokens, output_tokens)),
+                float(estimate_completion_cost_usd(settings.llm_model, input_tokens, output_tokens)),
                 {
                     "paper_id": paper_id,
-                    "model_name": settings.explanation_model,
+                    "model_name": settings.llm_model,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "force": force,
                 },
             )
         with connection() as conn:
-            upsert_explanation(conn, paper_id, settings.explanation_model, explanation)
+            upsert_explanation(conn, paper_id, settings.llm_model, explanation)
     elif cost_recorder is not None:
         cache_hit_at = datetime.now(UTC)
         cost_recorder(
@@ -2023,7 +2023,7 @@ def generate_explanation(
             0.0,
             {
                 "paper_id": paper_id,
-                "model_name": settings.explanation_model,
+                "model_name": settings.llm_model,
                 "cache_hit": True,
                 "force": force,
             },

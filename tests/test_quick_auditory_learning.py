@@ -35,6 +35,7 @@ from quick_auditory_learning.search import merge_scores
 from quick_auditory_learning.session_flow import build_followup_query
 from quick_auditory_learning.session_selection import latest_event_payload, restore_next_paper_id, sort_search_modes
 from quick_auditory_learning.embeddings import EmbeddingBatchResult
+from quick_auditory_learning.settings import Settings
 from quick_auditory_learning.voice import RandomVoiceVoxSpeaker, build_voicevox_speaker, split_text
 
 
@@ -50,6 +51,25 @@ def load_backend_main(monkeypatch):
 
 def test_normalize_identifier() -> None:
     assert normalize_identifier("text-embedding-3-small") == "text_embedding_3_small"
+
+
+def test_settings_accepts_llm_model_alias(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("QUICK_AUDITORY_LEARNING_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("QUICK_AUDITORY_LEARNING_LLM_MODEL", "gpt-5.4-nano")
+
+    settings = Settings()
+
+    assert settings.llm_model == "gpt-5.4-nano"
+
+
+def test_settings_rejects_unsupported_llm_model(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("QUICK_AUDITORY_LEARNING_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("QUICK_AUDITORY_LEARNING_LLM_MODEL", "not-a-real-model")
+
+    with pytest.raises(ValueError, match="QUICK_AUDITORY_LEARNING_LLM_MODEL"):
+        Settings()
 
 
 def test_health_reports_session_websocket_connections(monkeypatch) -> None:

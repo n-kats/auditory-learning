@@ -47,21 +47,42 @@ QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME=text-embedding-3-large
 QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
 ```
 
-- 必須: `OPENAI_API_KEY` または `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY`。検索と解説生成を使うときに、どちらか一方を設定する。両方ある場合は `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を優先する
-- 任意: `QUICK_AUDITORY_LEARNING_JSONL_PATH`。既定の `_data/quick_auditory_learning/arxiv.jsonl` 以外に JSONL を置くときに設定する
-- 任意: `QUICK_AUDITORY_LEARNING_HOST`。別 PC やスマホからアクセスするとき、または `localhost` 以外のホスト名や IP アドレスで開きたいときに設定する
-- 任意: `QUICK_AUDITORY_LEARNING_BACKEND_PORT`。別のアプリとポートがぶつかるときに設定する
-- 任意: `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`。別のアプリとポートがぶつかるときに設定する
-- 任意: `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`。検索で使う埋め込みモデル名を変えるときに設定する
-- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する
-
-`QUICK_AUDITORY_LEARNING_JSONL_PATH` を書かない場合は、既定の `_data/quick_auditory_learning/arxiv.jsonl` を使います。
+- 必須: `OPENAI_API_KEY` または `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY`。検索と解説生成を使うときに、どちらか一方を設定する。両方ある場合は `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を優先する。（規定値: なし）
+- 任意: `QUICK_AUDITORY_LEARNING_JSONL_PATH`。既定の `_data/quick_auditory_learning/arxiv.jsonl` 以外に JSONL を置くときに設定する。（規定値: `_data/quick_auditory_learning/arxiv.jsonl`）
+- 任意: `QUICK_AUDITORY_LEARNING_HOST`。別 PC やスマホからアクセスするとき、または `localhost` 以外のホスト名や IP アドレスで開きたいときに設定する。（規定値: `localhost`）
+- 任意: `QUICK_AUDITORY_LEARNING_BACKEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `8000`）
+- 任意: `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `5173`）
+- 任意: `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`。検索で使う埋め込みモデル名を変えるときに設定する。（規定値: `text-embedding-3-large`）
+- 任意: `QUICK_AUDITORY_LEARNING_LLM_MODEL`。解説生成で使うモデルを変えるときに設定する。（規定値: `gpt-5.4-nano`）
+- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する。（規定値: `http://voicevox:50021`）
 
 別 PC やスマホから開くときは、その端末から見えるホスト名か IP アドレスを `QUICK_AUDITORY_LEARNING_HOST` に入れます。`localhost` は自分の端末を指します。
 
 家の中や社内などのローカルネットワーク内だけで使うなら、その範囲からだけ見えるホスト名か IP アドレスを使い、外部公開は避けてください。外部ネットワークから公開する場合は、必要なポートだけを開け、Docker のポート公開設定、OS のファイアウォール、ルータの転送設定を確認してください。
 
 `.env` を使わずに環境変数で直接渡しても構いませんが、起動スクリプトを使う場合はワークスペース直下の `.env` を置くのが最も簡単です。
+
+## 4.1 LLM モデル候補
+
+`QUICK_AUDITORY_LEARNING_LLM_MODEL` に指定できるのは、コスト計算できる completion model だけです。候補は次のとおりです。
+
+- `gpt-5`
+- `gpt-5-mini`
+- `gpt-5-nano`
+- `gpt-5.1`
+- `gpt-5.1-mini`
+- `gpt-5.1-nano`
+- `gpt-5.2`
+- `gpt-5.2-mini`
+- `gpt-5.2-nano`
+- `gpt-5.4`
+- `gpt-5.4-mini`
+- `gpt-5.4-nano`
+- `gpt-4.1`
+- `gpt-4.1-mini`
+- `gpt-4.1-nano`
+- `gpt-4o`
+- `gpt-4o-mini`
 
 ## 5. 起動・アクセス
 

@@ -28,6 +28,8 @@ _COMPLETION_PRICES_USD_PER_MILLION_TOKENS: dict[str, tuple[Decimal, Decimal]] = 
     "gpt-4o-mini": (Decimal("0.15"), Decimal("0.60")),
 }
 
+SUPPORTED_COMPLETION_MODEL_NAMES = frozenset(_COMPLETION_PRICES_USD_PER_MILLION_TOKENS)
+
 
 def _to_decimal(value: int | float | Decimal) -> Decimal:
     if isinstance(value, Decimal):
