@@ -114,3 +114,5 @@ backend が永続化する session の状態は次の 2 種類だけを扱う。
 - `session_started` は session 確立を表すだけで、再生可能状態はまだ保証しない。
 - `session_playback_started` は、次論文の検索先読みを始めてよい合図として扱う。
 - `session_costs_updated` は複数回届く前提で扱う。
+- `session_regenerated` は同じ session の全クライアントへ共有される。
+- 片方のクライアントが停止中でも、別クライアントで session が進んだら、再生再開時は最新の current paper に追従する。

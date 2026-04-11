@@ -79,6 +79,15 @@
 - `前の論文から検索した他の論文` は、直前の論文で得られた `rejected_candidates` を次の論文表示へ引き継いで見せる UI 領域である。はじめから開始した場合や停止後はこの引き継ぎ状態を破棄する。
 - `paper_search_updated` は、対応する論文の検索結果が後から届くイベントであり、`paper_ready` より前後どちらに届いてもよい。
 - `session_next_candidate_updated` と `session_costs_updated` は session WebSocket で配信する。
+- 同じ session を複数のクライアントで開いている場合、`next` や `set_next_candidate` の結果は同じ session の全クライアントに反映される。
+- 同じ session を複数のクライアントで開いている場合、`regenerate` の結果も同じ session の全クライアントに反映される。
+- 片方のクライアントが再生停止や待機状態にあっても、別クライアントが session を進めたら、再生再開時には current paper を最新状態へ追従させる。
+
+## 続きから一覧の表示
+- `続きから` の一覧では current paper の title を 1 行で独立表示する。
+- その title は session ID と同じ文字サイズ・色に揃える。
+- title 以外の session 情報は別行にまとめる。
+- 接続数は `接続数:` として表示し、0 のときは出さない。
 
 ## テスト方針
 - route の path converter はテストで固定する。

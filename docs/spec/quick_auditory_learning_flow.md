@@ -9,6 +9,7 @@ session 開始から再生、検索結果更新、次候補指定、停止、再
 - `paper_search_updated` は検索結果だけを後から更新する。
 - 次の論文の検索先読みは、再生が実際に始まってから開始する。
 - 検索更新は session room に bind される前に発生した場合でも pending として保持される。
+- 同じ session を複数のクライアントで開いている場合、`next` や `set_next_candidate` の結果はその session の全クライアントに配信される。
 
 ## 1. 新規開始
 ```text
@@ -114,6 +115,10 @@ UI                      backend
 |                        | 検索はバックグラウンドで再実行
 |                        | paper_search_updated
 ```
+
+補足:
+- `regenerate` の結果は同じ session の全クライアントに共有される。
+- 片方のクライアントが停止中や待機中でも、別クライアントで session が進んだ場合、再生を再開したクライアントは最新の current paper に追従する。
 
 ## 6. 停止
 ```text

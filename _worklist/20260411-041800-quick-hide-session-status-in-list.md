@@ -20,3 +20,9 @@
 - 接続数が 0 のときは表示しないようにした。
 - current paper の title は 1 行で独立表示し、それ以外の session 情報は別行にまとめるようにした。
 - current paper の title は session ID と同じ文字サイズ・色に揃えた。
+
+## 仕様追記
+- `docs/spec/quick_auditory_learning.md` に `続きから` 一覧の表示ルールを追記した。
+- `docs/spec/quick_auditory_learning_implementation_notes.md` に title の文字サイズ・色の揃え方を追記した。
+- 同じ session を複数クライアントで開いたとき、`next` や `set_next_candidate` の結果が全クライアントへ反映されることを追記した。
+- 同じ session を複数クライアントで開いたとき、`regenerate` も共有されることと、停止中のクライアントは再生再開時に最新 current paper に追従することを追記した。

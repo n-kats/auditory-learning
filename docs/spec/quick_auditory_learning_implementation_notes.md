@@ -28,6 +28,7 @@
 
 ## セッション情報の表示
 - `続きから` 一覧には current paper の title を表示してよい。
+- title は session ID と同じ文字サイズ・色に揃える。
 - 長い title は 1 行で省略してよい。
 
 ## WebSocket の扱い
@@ -35,6 +36,9 @@
 - `session_id` が違うイベントは、その session の state に混ぜない。
 - `paper_id` が違う `paper_search_updated` は stale として捨てる。
 - `paper_ready` と `paper_search_updated` が逆順でも、最終的に正しい paper に紐づく状態だけを残す。
+- 同じ session を複数のクライアントで開いているときは、`next` / `set_next_candidate` / `paper_ready` / `session_advanced` の結果を全クライアントで共有して反映する。
+- 同じ session を複数のクライアントで開いているときは、`regenerate` も全クライアントで共有する。
+- 片方が停止中や待機中でも、別クライアントで session が進んだら、再生再開時には current paper を最新状態へ追従させる。
 
 ## 検索結果の扱い
 - `search` の `rejected_candidates` は、その paper の検索で hits に入らなかった候補を表す。
