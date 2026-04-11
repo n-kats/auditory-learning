@@ -33,6 +33,7 @@ UI                      backend
 - `session_started` が先に届き、`paper_ready` が続く。
 - `paper_ready` の `search_deferred=true` のとき、検索結果はまだ表示されない。
 - 検索完了後の `paper_search_updated` で検索結果一覧と次候補を更新する。
+- HTTP replay のあとに websocket へ `resume` を送り、同じ session room の live 更新を受け取れる状態にする。
 
 ## 2. 続きから
 ### 2-1. 画面の「続きから」
@@ -47,6 +48,9 @@ UI                          backend
 | snapshot + events を replay |
 | セッション画面へ遷移        |
 | WebSocket を開いて live 待受 |
+| type=resume, last_seq      |
+|---------------------------> |
+| room 参加と差分取得         |
 ```
 
 ### 2-2. WebSocket の自動再接続
@@ -89,6 +93,7 @@ UI                      backend
 
 ## 4. 次候補の指定
 `set_next_candidate` は次に再生する候補を指定する操作である。
+選ばれた候補は検索結果一覧の候補行で色付き表示する。
 ### 次候補指定
 ```text
 UI                      backend
@@ -101,7 +106,7 @@ UI                      backend
 ```
 
 補足:
-- `next_paper_id` を選択中候補として扱う。見た目は緑系の選択表示を想定する。
+- UI は送信直後に候補行を楽観的に選択表示してよい。backend からの `session_next_candidate_updated` で最終同期する。
 
 ## 5. 再生成
 ```text

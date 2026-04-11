@@ -60,8 +60,16 @@ export function shouldIgnoreStaleSearch(params: {
   currentPaperId: string | null;
   messageSessionId?: string | null;
   messagePaperId?: string | null;
+  pendingPaperId?: string | null;
+  allowPendingSessionSearch?: boolean;
 }): boolean {
   if (!params.messagePaperId) {
+    return false;
+  }
+  if (params.pendingPaperId !== null && params.pendingPaperId !== undefined && params.pendingPaperId === params.messagePaperId) {
+    return false;
+  }
+  if (params.allowPendingSessionSearch && params.currentSessionId !== null && params.messageSessionId === params.currentSessionId) {
     return false;
   }
   if (params.currentSessionId !== null && params.messageSessionId !== null && params.currentSessionId !== params.messageSessionId) {
@@ -71,6 +79,21 @@ export function shouldIgnoreStaleSearch(params: {
     return true;
   }
   return false;
+}
+
+export function shouldIgnoreStaleSearchMessage(params: {
+  messageType: SessionEventMessage["type"];
+  currentSessionId: string | null;
+  currentPaperId: string | null;
+  messageSessionId?: string | null;
+  messagePaperId?: string | null;
+  pendingPaperId?: string | null;
+  allowPendingSessionSearch?: boolean;
+}): boolean {
+  if (params.messageType !== "paper_search_updated") {
+    return false;
+  }
+  return shouldIgnoreStaleSearch(params);
 }
 
 export function applySessionEvent(state: SessionViewState, event: SessionEventMessage): SessionViewState {
@@ -114,7 +137,7 @@ export function applySessionEvent(state: SessionViewState, event: SessionEventMe
       fulltextSearchQuery: event.fulltext_search_query ?? "",
       searchModes: event.search_modes ?? [],
       trailPaperIds: event.trail_paper_ids ?? [],
-      nextPaperId: event.next_paper_id ?? null,
+      nextPaperId: event.next_paper_id ?? (state.searchPaperId === event.paper.id ? state.nextPaperId : null),
       previousSearchPaperId: previousSearch.previousSearchPaperId,
       previousRejectedCandidates: previousSearch.previousRejectedCandidates,
     };

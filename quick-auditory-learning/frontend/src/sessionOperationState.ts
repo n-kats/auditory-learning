@@ -8,6 +8,10 @@ export type SessionOperationPatch = {
   shouldAutoPlay?: boolean;
 };
 
+export function resolveShouldAutoPlayOnAdvance(isPlaying: boolean, shouldAutoPlay: boolean): boolean {
+  return isPlaying || shouldAutoPlay;
+}
+
 export function buildSessionOperationStartPatch(
   kind: SessionOperationKind,
   options?: { shouldAutoPlay?: boolean },

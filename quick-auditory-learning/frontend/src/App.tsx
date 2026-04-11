@@ -22,14 +22,17 @@ import {
   buildStartSessionCommand,
   buildStopSessionCommand,
 } from "./sessionCommands";
+import { buildResumePayload } from "./sessionSocket";
 import { formatHeaderStatus, formatSessionConnectionCount } from "./statusSummary";
 import { usePaperMemo } from "./usePaperMemo";
+import { resolveDisplayedNextCandidatePaperId } from "./nextCandidateDisplay";
 import { replaySessionEvents } from "./sessionReplay";
-import { shouldIgnoreStaleSearch, shouldShowSearchResults } from "./sessionViewState";
+import { shouldIgnoreStaleSearchMessage, shouldShowSearchResults } from "./sessionViewState";
 import {
   buildSessionOperationFailurePatch,
   buildSessionOperationIdlePatch,
   buildSessionOperationStartPatch,
+  resolveShouldAutoPlayOnAdvance,
   type SessionOperationKind,
   type SessionOperationPatch,
 } from "./sessionOperationState";
@@ -46,8 +49,9 @@ import { useBackendDirectoryData } from "./useBackendDirectoryData";
 import { useMediaSession } from "./useMediaSession";
 import { useAppSessionState } from "./useAppSessionState";
 import type { AppSessionState } from "./appSessionState";
-import { canSendSessionAction, shouldHighlightNextCandidateAction } from "./sessionActionAvailability";
+import { canSendSessionAction } from "./sessionActionAvailability";
 import { getSessionPanelMode, shouldShowSearchResultSections } from "./sessionPanelState";
+import { shouldSendPlaybackStarted } from "./playbackStartedSync";
 
 type SearchFormState = {
   sourceUrl: string;
@@ -283,7 +287,10 @@ export default function App() {
     audioIndex,
     audioDurationMs,
   });
-  const displayNextCandidatePaperId = selectedNextCandidatePaperId ?? nextPaperId;
+  const displayNextCandidatePaperId = resolveDisplayedNextCandidatePaperId({
+    selectedNextCandidatePaperId,
+    nextPaperId,
+  });
   const applyAudioPlaybackState = (nextState: AppSessionState) => {
     setAudioUrls(nextState.audioUrls);
     setAudioIndex(nextState.audioIndex);
@@ -344,11 +351,14 @@ export default function App() {
   const handleSessionMessage = async (message: SessionEventMessage) => {
     const appSessionState = currentAppSessionStateRef.current;
     const messageSeq = typeof message.seq === "number" ? message.seq : null;
-    const ignoreStaleSearch = shouldIgnoreStaleSearch({
+    const ignoreStaleSearch = shouldIgnoreStaleSearchMessage({
+      messageType: message.type,
       currentSessionId: appSessionState.currentSessionId,
       currentPaperId: appSessionState.currentPaper?.id ?? null,
       messageSessionId: message.session_id ?? null,
       messagePaperId: message.paper_id ?? null,
+      pendingPaperId: appSessionState.nextPaperId,
+      allowPendingSessionSearch: loading && (pendingAction === "next" || pendingAction === "regenerate"),
     });
     if (messageSeq !== null && message.type !== "paper_search_updated" && messageSeq <= lastEventSeqRef.current) {
       return;
@@ -361,6 +371,26 @@ export default function App() {
       applySessionOperationPatch(buildSessionOperationFailurePatch(handlerResult.errorMessage));
       return;
     }
+    if (handlerResult.operationToMarkLoading) {
+      const shouldAutoPlayAfterAdvance = resolveShouldAutoPlayOnAdvance(isPlaying, shouldAutoPlayRef.current);
+      stopAudio();
+      setIsPlaying(false);
+      applySessionOperationPatch(
+        buildSessionOperationStartPatch(handlerResult.operationToMarkLoading, {
+          shouldAutoPlay: shouldAutoPlayAfterAdvance,
+        }),
+      );
+      if (handlerResult.refreshHistory) {
+        void refreshHistory();
+      }
+      if (handlerResult.refreshSessions) {
+        void refreshSessions();
+      }
+      if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
+      }
+      return;
+    }
     const statePatch = handlerResult.patch;
     if (statePatch) {
       if (statePatch.nextState) {
@@ -370,14 +400,14 @@ export default function App() {
         if (statePatch.shouldUpdateSearchPaperIdRef) {
           searchPaperIdRef.current = statePatch.nextState.searchPaperId;
         }
-        if (message.type === "paper_ready" || message.type === "session_stopped") {
-          setSelectedNextCandidatePaperId(null);
-        }
         if (statePatch.shouldActivateSessionTab) {
           setActiveTab("session");
         }
         if (statePatch.shouldActivateStartTab) {
           setActiveTab("start");
+        }
+        if (message.type === "session_next_candidate_updated" || message.type === "paper_ready" || message.type === "session_stopped") {
+          setSelectedNextCandidatePaperId(null);
         }
       }
       if (statePatch.memo !== undefined) {
@@ -423,11 +453,17 @@ export default function App() {
     if (handlerResult.refreshHistory) {
       await refreshHistory();
       await refreshSessions();
+      if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
+      }
       return;
     }
     if (handlerResult.refreshSessions) {
       await refreshHistory();
       await refreshSessions();
+      if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
+      }
       return;
     }
     if (handlerResult.updateLastEventSeq && messageSeq !== null) {
@@ -442,6 +478,28 @@ export default function App() {
   useEffect(() => {
     playbackStartedPaperIdRef.current = null;
   }, [currentSessionId, currentPaper?.id]);
+
+  useEffect(() => {
+    const currentAudio = audioRef.current;
+    if (
+      !shouldSendPlaybackStarted({
+        currentSessionId,
+        currentPaperId: currentPaper?.id ?? null,
+        isPlaying,
+        loading,
+        socketOpen: socketRef.current?.readyState === WebSocket.OPEN,
+        audioPaused: currentAudio?.paused ?? true,
+        reportedPaperId: playbackStartedPaperIdRef.current,
+      })
+    ) {
+      return;
+    }
+    if (!currentSessionId || !currentPaper?.id || !socketRef.current) {
+      return;
+    }
+    playbackStartedPaperIdRef.current = currentPaper.id;
+    socketRef.current.send(JSON.stringify(buildPlaybackStartedSessionCommand(currentSessionId, currentPaper.id)));
+  }, [audioRef, currentPaper?.id, currentSessionId, isPlaying, loading, socketRef]);
 
   const handleStart = async () => {
     const sourceUrl = form.sourceUrl.trim();
@@ -525,9 +583,8 @@ export default function App() {
     setPaperMemo(replayState.memo);
     setIsPlaying(false);
     setActiveTab(replayState.activeTab);
-    setSelectedNextCandidatePaperId(null);
     if (replayState.currentSessionId !== null) {
-      openSessionSocket(undefined, false);
+      openSessionSocket(buildResumePayload(replayState.currentSessionId, replayState.lastEventSeq), false);
     }
     applySessionOperationPatch(buildSessionOperationIdlePatch());
   };
@@ -547,6 +604,7 @@ export default function App() {
 
   const handleStop = () => {
     stopAudio();
+    shouldAutoPlayRef.current = false;
   };
 
   const handleResume = () => {
@@ -596,7 +654,11 @@ export default function App() {
       setError("セッション通信が接続されていません。");
       return;
     }
-    applySessionOperationPatch(buildSessionOperationStartPatch("next"));
+    applySessionOperationPatch(
+      buildSessionOperationStartPatch("next", {
+        shouldAutoPlay: resolveShouldAutoPlayOnAdvance(isPlaying, shouldAutoPlayRef.current),
+      }),
+    );
     socket?.send(JSON.stringify(buildNextSessionCommand(sessionId)));
   };
 
@@ -611,7 +673,11 @@ export default function App() {
       return;
     }
     stopAudio();
-    applySessionOperationPatch(buildSessionOperationStartPatch("regenerate"));
+    applySessionOperationPatch(
+      buildSessionOperationStartPatch("regenerate", {
+        shouldAutoPlay: resolveShouldAutoPlayOnAdvance(isPlaying, shouldAutoPlayRef.current),
+      }),
+    );
     const sessionId = currentSessionId;
     if (!sessionId) {
       return;
@@ -620,6 +686,9 @@ export default function App() {
   };
 
   const handleAudioEnded = () => {
+    if (loading) {
+      return;
+    }
     if (audioIndex < audioUrls.length - 1) {
       setAudioIndex((current) => current + 1);
       return;
@@ -713,22 +782,13 @@ export default function App() {
 
         {audioUrls.length > 0 ? (
           <div className="audio-surface" aria-hidden="true">
-            <audio
+              <audio
               ref={audioRef}
               preload="auto"
               src={resolveAudioSourceUrl(apiBaseUrl, audioUrls[audioIndex])}
               className="audio-player"
               onPlay={() => {
                 setIsPlaying(true);
-                if (
-                  currentSessionId &&
-                  currentPaper?.id &&
-                  playbackStartedPaperIdRef.current !== currentPaper.id &&
-                  socketRef.current?.readyState === WebSocket.OPEN
-                ) {
-                  playbackStartedPaperIdRef.current = currentPaper.id;
-                  socketRef.current.send(JSON.stringify(buildPlaybackStartedSessionCommand(currentSessionId, currentPaper.id)));
-                }
               }}
               onPause={(event) => {
                 if (event.currentTarget.ended) {
@@ -972,11 +1032,11 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          className={`current-session-action-button${shouldHighlightNextCandidateAction(displayNextCandidatePaperId) ? " is-active" : ""}`}
+                          className="current-session-action-button"
                           onClick={handleNext}
-                          disabled={!canSendSessionAction({ currentSessionId, wsConnected: wsStatus === "connected" })}
+                          disabled={loading || !canSendSessionAction({ currentSessionId, wsConnected: wsStatus === "connected" })}
                           aria-label="次へ進む"
-                          title={shouldHighlightNextCandidateAction(displayNextCandidatePaperId) ? "次に再生する候補が選択されています" : "次へ進む"}
+                          title="次へ進む"
                         >
                           <SessionActionIcon kind="next" />
                         </button>
@@ -1309,7 +1369,7 @@ export default function App() {
                             nextCandidatePaperId: displayNextCandidatePaperId,
                             trailPaperIds: trailPaperSet,
                             favoritePaperIds: favoriteSet,
-                              canInteract: canSendSessionAction({
+                            canInteract: canSendSessionAction({
                               currentSessionId,
                               wsConnected: socketRef.current?.readyState === WebSocket.OPEN,
                             }),
@@ -1354,15 +1414,15 @@ export default function App() {
                       ) : (
                         <SearchResultList
                           items={previousRejectedCandidates.map((candidate) => {
-                            const state = buildSearchResultState({
-                              currentPaperId: currentPaper?.id ?? null,
-                              paperId: candidate.paper_id,
-                              nextCandidatePaperId: displayNextCandidatePaperId,
-                              trailPaperIds: trailPaperSet,
-                              favoritePaperIds: favoriteSet,
-                              canInteract: canSendSessionAction({
-                                currentSessionId,
-                                wsConnected: socketRef.current?.readyState === WebSocket.OPEN,
+                          const state = buildSearchResultState({
+                            currentPaperId: currentPaper?.id ?? null,
+                            paperId: candidate.paper_id,
+                            nextCandidatePaperId: displayNextCandidatePaperId,
+                            trailPaperIds: trailPaperSet,
+                            favoritePaperIds: favoriteSet,
+                            canInteract: canSendSessionAction({
+                              currentSessionId,
+                              wsConnected: socketRef.current?.readyState === WebSocket.OPEN,
                               }),
                             });
                             const sourceModes = uniqueSearchModes(candidate.source_modes).map((mode) => formatSearchMode(mode));

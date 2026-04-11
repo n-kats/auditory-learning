@@ -30,6 +30,23 @@ describe("sessionMessageHandlers", () => {
     const result = buildSessionMessageHandlerResult(emptyAppSessionState(), { type: "session_regenerated", session_id: "session-a" }, null);
     expect(result.refreshHistory).toBe(true);
     expect(result.refreshSessions).toBe(true);
+    expect(result.operationToMarkLoading).toBe("regenerate");
+    expect(result.patch).toBeNull();
+  });
+
+  it("classifies session_advanced as a loading-triggering update", () => {
+    const result = buildSessionMessageHandlerResult(emptyAppSessionState(), { type: "session_advanced", session_id: "session-a" }, null);
+    expect(result.refreshHistory).toBe(true);
+    expect(result.refreshSessions).toBe(true);
+    expect(result.operationToMarkLoading).toBe("next");
+    expect(result.patch).toBeNull();
+  });
+
+  it("classifies session_next_requested as a loading-triggering update", () => {
+    const result = buildSessionMessageHandlerResult(emptyAppSessionState(), { type: "session_next_requested", session_id: "session-a" }, null);
+    expect(result.refreshHistory).toBe(true);
+    expect(result.refreshSessions).toBe(true);
+    expect(result.operationToMarkLoading).toBe("next");
     expect(result.patch).toBeNull();
   });
 

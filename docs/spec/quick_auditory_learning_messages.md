@@ -55,7 +55,7 @@ backend が永続化する session の状態は次の 2 種類だけを扱う。
 | type | 必須入力 | 用途 | 補足 |
 | --- | --- | --- | --- |
 | `start` | `source_url` | 新しい session を開始 | `model_name`, `limit`, `route1_weight`, `route2_weight`, `seed`, `search_modes` も送る |
-| `resume` | `session_id`, `last_event_seq` | websocket 再接続時の差分再開 | 現在の「続きから」ボタンは HTTP snapshot replay を使うが、socket 再接続ではこのコマンドを使う |
+| `resume` | `session_id`, `last_event_seq` | websocket 再接続時の差分再開 | HTTP snapshot replay のあとに room 参加用としても送る。socket 再接続でもこのコマンドを使う |
 | `next` | `session_id` | 次の論文へ進む | next candidate があればそれを優先する |
 | `set_next_candidate` | `session_id`, `paper_id` | 次に再生する候補を指定する | 明示的な次候補指定。別候補を指定すると更新される。 |
 | `stop` | `session_id` | session を停止 | current session を `stopped` にする |
@@ -113,6 +113,7 @@ backend が永続化する session の状態は次の 2 種類だけを扱う。
 - `前の論文から検索した他の論文` は、frontend が直前 paper の `search.rejected_candidates` を保持して表示する UI 領域であり、通信プロトコル上の別イベントではない。
 - `session_started` は session 確立を表すだけで、再生可能状態はまだ保証しない。
 - `session_playback_started` は、次論文の検索先読みを始めてよい合図として扱う。
+- `resume` は、HTTP snapshot replay のあとに websocket を session room へ参加させる用途でも使う。
 - `session_costs_updated` は複数回届く前提で扱う。
 - `session_regenerated` は同じ session の全クライアントへ共有される。
 - 片方のクライアントが停止中でも、別クライアントで session が進んだら、再生再開時は最新の current paper に追従する。

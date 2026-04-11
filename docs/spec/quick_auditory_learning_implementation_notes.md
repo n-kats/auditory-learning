@@ -39,6 +39,7 @@
 - 同じ session を複数のクライアントで開いているときは、`next` / `set_next_candidate` / `paper_ready` / `session_advanced` の結果を全クライアントで共有して反映する。
 - 同じ session を複数のクライアントで開いているときは、`regenerate` も全クライアントで共有する。
 - 片方が停止中や待機中でも、別クライアントで session が進んだら、再生再開時には current paper を最新状態へ追従させる。
+- 同期の詳細ルールは `quick_auditory_learning_sync_policy.md` に従う。
 
 ## 検索結果の扱い
 - `search` の `rejected_candidates` は、その paper の検索で hits に入らなかった候補を表す。
@@ -51,6 +52,7 @@
 - `queue` / `dequeue` は FIFO の待ち行列ではなく、次候補の指定・変更として扱う。
 - `set_next_candidate` は候補を指定する操作であり、解除トグルではない。
 - UI の選択状態は backend の `next_paper_id` を基準にする。
+- UI は `set_next_candidate` の送信直後に候補行を楽観的に選択表示してよい。backend の `session_next_candidate_updated` で同期する。
 
 ## 先読みの扱い
 - 次候補の検索先読みは、`session_playback_started` を受けてから始める。

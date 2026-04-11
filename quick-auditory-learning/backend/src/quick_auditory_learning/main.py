@@ -433,14 +433,18 @@ def _session_room_broadcast(session_id: str, payload: dict[str, object]) -> None
         _session_room_buffer_pending(session_id, payload)
         return
     for queue, loop in listeners:
-        def _enqueue() -> None:
+        def _enqueue(target_queue: asyncio.Queue[dict[str, object]] = queue) -> None:
             with suppress(asyncio.QueueFull):
-                queue.put_nowait(payload)
+                target_queue.put_nowait(payload)
 
         try:
             loop.call_soon_threadsafe(_enqueue)
         except RuntimeError:
             continue
+
+
+def _should_broadcast_session_command(command_type: str) -> bool:
+    return command_type in {"next", "set_next_candidate", "stop", "regenerate", "playback_started"}
 
 
 @app.websocket("/papers/{paper_id:path}/memo/ws")
@@ -1759,9 +1763,15 @@ async def session_stream(websocket: WebSocket) -> None:
                 if isinstance(maybe_session_id, str) and maybe_session_id:
                     event_session_id = maybe_session_id
                     break
+            if not event_session_id and current_session_id is not None:
+                event_session_id = current_session_id
             _bind_session(event_session_id)
+            should_broadcast = _should_broadcast_session_command(message.type)
             for event in events:
-                await outbox.put(event)
+                if should_broadcast:
+                    _session_room_broadcast(event_session_id, event)
+                else:
+                    await outbox.put(event)
                 if event.get("type") == "session_stopped" and current_session_id is not None:
                     _session_room_unbind(current_session_id, outbox, loop)
                     current_session_id = None
@@ -1769,6 +1779,10 @@ async def session_stream(websocket: WebSocket) -> None:
                 for pending_event in _session_room_drain_pending(current_session_id):
                     await outbox.put(pending_event)
     except WebSocketDisconnect:
+        return
+    except RuntimeError as exc:
+        if "WebSocket is not connected" not in str(exc):
+            raise
         return
     finally:
         if current_session_id is not None:

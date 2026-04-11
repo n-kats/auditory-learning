@@ -115,7 +115,7 @@ export function replaySessionEvents(snapshot: SessionSnapshot, events: SessionEv
       state.fulltextSearchQuery = event.fulltext_search_query ?? "";
       state.searchModes = event.search_modes ?? [];
       state.trailPaperIds = event.trail_paper_ids ?? [];
-      state.nextPaperId = event.next_paper_id ?? null;
+      state.nextPaperId = event.next_paper_id ?? (state.searchPaperId === event.paper.id ? state.nextPaperId : null);
       if (!event.search_deferred) {
         state.searchPaperId = event.paper.id;
         state.hits = event.search?.hits ?? [];

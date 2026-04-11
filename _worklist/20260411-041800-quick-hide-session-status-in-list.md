@@ -26,3 +26,8 @@
 - `docs/spec/quick_auditory_learning_implementation_notes.md` に title の文字サイズ・色の揃え方を追記した。
 - 同じ session を複数クライアントで開いたとき、`next` や `set_next_candidate` の結果が全クライアントへ反映されることを追記した。
 - 同じ session を複数クライアントで開いたとき、`regenerate` も共有されることと、停止中のクライアントは再生再開時に最新 current paper に追従することを追記した。
+- `docs/spec/quick_auditory_learning_sync_policy.md` を追加し、同期方針と検証テストの観点を整理した。
+
+## 検証
+- backend では、共有すべき session コマンドの判定を helper 化し、単体テストで固定する。
+- frontend では、後続の `paper_ready` で current paper が差し替わることを回帰テストで固定する。

@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canSendSessionAction, shouldHighlightNextCandidateAction } from "./sessionActionAvailability";
+import { canSendSessionAction } from "./sessionActionAvailability";
 
 describe("sessionActionAvailability", () => {
   it("enables session actions only when a session is open and websocket is connected", () => {
     expect(canSendSessionAction({ currentSessionId: null, wsConnected: true })).toBe(false);
     expect(canSendSessionAction({ currentSessionId: "session-1", wsConnected: false })).toBe(false);
     expect(canSendSessionAction({ currentSessionId: "session-1", wsConnected: true })).toBe(true);
-  });
-
-  it("highlights next when a next candidate is selected", () => {
-    expect(shouldHighlightNextCandidateAction(null)).toBe(false);
-    expect(shouldHighlightNextCandidateAction("paper-1")).toBe(true);
   });
 });

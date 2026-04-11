@@ -3,6 +3,7 @@ import {
   buildSessionOperationFailurePatch,
   buildSessionOperationIdlePatch,
   buildSessionOperationStartPatch,
+  resolveShouldAutoPlayOnAdvance,
 } from "./sessionOperationState";
 
 describe("sessionOperationState", () => {
@@ -52,5 +53,11 @@ describe("sessionOperationState", () => {
       pendingAction: "idle",
       backendNotices: [],
     });
+  });
+
+  it("resolveShouldAutoPlayOnAdvance keeps autoplay when playback is active", () => {
+    expect(resolveShouldAutoPlayOnAdvance(true, false)).toBe(true);
+    expect(resolveShouldAutoPlayOnAdvance(false, true)).toBe(true);
+    expect(resolveShouldAutoPlayOnAdvance(false, false)).toBe(false);
   });
 });

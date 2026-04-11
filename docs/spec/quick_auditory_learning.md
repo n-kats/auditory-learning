@@ -7,6 +7,7 @@
 - `quick_auditory_learning_messages.md`: session の種類、通信データ型、HTTP / WebSocket の一覧。
 - `quick_auditory_learning_flow.md`: start / resume / next / 次候補指定 / stop / regenerate の通信フロー。
 - `quick_auditory_learning_implementation_notes.md`: 実装時に踏みやすい注意点。
+- `quick_auditory_learning_sync_policy.md`: 同一 session を複数クライアントで開いたときの同期ポリシー。
 
 ## 論文取得の方針
 - `source_url` から開始する処理だけが arXiv API を利用する。
@@ -70,7 +71,8 @@
 - `next_paper_id` は backend が決定する。
 - frontend は第一候補を独自に計算しない。
 - `set_next_candidate` は次に再生する候補を指定する操作である。`next_paper_id` はその結果として backend が決める。
-- 指定された候補は UI で選択中として明示する。`next_paper_id` を選択中候補として扱い、見た目は緑系の選択表示を想定する。
+- `set_next_candidate` で選ばれた候補は、検索結果一覧の候補行で色付き表示する。
+- UI は `set_next_candidate` の送信直後に候補行を楽観的に色付き表示してよい。backend の `session_next_candidate_updated` で同期する。
 - `next_paper_id` が決まっても、再生開始前は検索先読みを始めない。
 - `session_playback_started` を受けてから、その時点の current paper に紐づく next_paper_id の検索先読みを始める。
 - `next` 要求の受付時刻は `session_next_requested` として記録する。

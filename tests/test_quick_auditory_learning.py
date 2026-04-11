@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import importlib
 import json
+import asyncio
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import anyio
+import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -550,6 +554,179 @@ def test_session_stream_emits_next_candidate_updated_events(monkeypatch) -> None
 
     assert message["type"] == "session_next_candidate_updated"
     assert message["next_paper_id"] == "paper-2"
+
+
+def test_should_broadcast_session_command_only_for_shared_updates(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    assert main._should_broadcast_session_command("next") is True
+    assert main._should_broadcast_session_command("set_next_candidate") is True
+    assert main._should_broadcast_session_command("stop") is True
+    assert main._should_broadcast_session_command("regenerate") is True
+    assert main._should_broadcast_session_command("playback_started") is True
+    assert main._should_broadcast_session_command("start") is False
+    assert main._should_broadcast_session_command("resume") is False
+
+
+def test_session_stream_binds_resume_even_when_no_events_are_returned(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    bound_sessions: list[str] = []
+
+    monkeypatch.setattr(main, "_resume_session", lambda message: [])
+    monkeypatch.setattr(main, "_session_room_bind", lambda session_id, queue, loop: bound_sessions.append(session_id))
+    monkeypatch.setattr(main, "_session_room_unbind", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_session_room_drain_pending", lambda session_id: [])
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/sessions/ws") as websocket:
+            websocket.send_json({"type": "resume", "session_id": "session-1", "last_event_seq": 999})
+
+    assert bound_sessions == ["session-1"]
+
+
+def test_session_stream_ignores_unconnected_websocket_runtime_error(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    class FakeWebSocket:
+        async def accept(self) -> None:
+            return None
+
+        async def receive_json(self) -> dict[str, object]:
+            raise RuntimeError('WebSocket is not connected. Need to call "accept" first.')
+
+        async def send_json(self, payload: dict[str, object]) -> None:
+            return None
+
+    import anyio
+
+    anyio.run(main.session_stream, FakeWebSocket())
+
+
+def test_record_playback_started_rejects_stale_paper_id(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    session = SimpleNamespace(
+        session_id="session-1",
+        current_paper_id="p-current",
+        next_paper_id="p-next",
+        status="active",
+    )
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_conn = FakeConnection()
+
+    monkeypatch.setattr(main, "connection", lambda: fake_conn)
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: session)
+
+    with pytest.raises(ValueError, match="current paper mismatch: p-stale"):
+        main._record_playback_started(SimpleNamespace(session_id="session-1", paper_id="p-stale"))
+
+
+def test_session_stream_broadcasts_next_to_two_clients(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    with main.session_room_lock:
+        main.session_room_queues.clear()
+    with main.session_room_pending_lock:
+        main.session_room_pending_events.clear()
+
+    monkeypatch.setattr(
+        main,
+        "_start_session",
+        lambda message: [
+            {
+                "type": "session_started",
+                "session_id": "session-1",
+                "seq": 1,
+            },
+            {
+                "type": "paper_ready",
+                "session_id": "session-1",
+                "seq": 2,
+                "paper": {"id": "paper-1", "title": "Paper 1", "abstract": "", "categories": []},
+                "search_deferred": True,
+                "search": {"hits": [], "rejected_candidates": [], "fallback_used": True},
+            },
+        ],
+    )
+    monkeypatch.setattr(main, "_resume_session", lambda message: [])
+    monkeypatch.setattr(
+        main,
+        "_advance_session",
+        lambda message: [
+            {
+                "type": "session_next_requested",
+                "session_id": "session-1",
+                "seq": 3,
+                "from_paper_id": "paper-1",
+                "to_paper_id": "paper-2",
+            },
+            {
+                "type": "session_advanced",
+                "session_id": "session-1",
+                "seq": 4,
+                "from_paper_id": "paper-1",
+                "to_paper_id": "paper-2",
+            },
+            {
+                "type": "paper_ready",
+                "session_id": "session-1",
+                "seq": 5,
+                "from_paper_id": "paper-1",
+                "paper": {"id": "paper-2", "title": "Paper 2", "abstract": "", "categories": []},
+                "search_deferred": True,
+                "search": {"hits": [], "rejected_candidates": [], "fallback_used": True},
+            },
+        ],
+    )
+
+    with TestClient(main.app) as client_a, TestClient(main.app) as client_b:
+        with client_a.websocket_connect("/sessions/ws") as websocket_a, client_b.websocket_connect("/sessions/ws") as websocket_b:
+            websocket_a.send_json(
+                {
+                    "type": "start",
+                    "source_url": "https://arxiv.org/abs/1234.5678",
+                    "model_name": "text-embedding-3-large",
+                    "include_old_vectors": False,
+                    "limit": 10,
+                    "route1_weight": 0.55,
+                    "route2_weight": 0.45,
+                    "seed": None,
+                    "search_modes": ["simple"],
+                }
+            )
+            start_messages = [websocket_a.receive_json(), websocket_a.receive_json()]
+            assert [message["type"] for message in start_messages] == ["session_started", "paper_ready"]
+
+            websocket_b.send_json({"type": "resume", "session_id": "session-1", "last_event_seq": 2})
+            for _ in range(200):
+                with main.session_room_lock:
+                    listeners = len(main.session_room_queues.get("session-1", set()))
+                if listeners == 2:
+                    break
+                time.sleep(0.01)
+            assert listeners == 2
+
+            websocket_a.send_json({"type": "next", "session_id": "session-1"})
+            messages_a = [websocket_a.receive_json(), websocket_a.receive_json(), websocket_a.receive_json()]
+            messages_b = [websocket_b.receive_json(), websocket_b.receive_json(), websocket_b.receive_json()]
+
+        assert [message["type"] for message in messages_a] == ["session_next_requested", "session_advanced", "paper_ready"]
+        assert [message["type"] for message in messages_b] == ["session_next_requested", "session_advanced", "paper_ready"]
+        assert messages_a[-1]["paper"]["id"] == "paper-2"
+        assert messages_b[-1]["paper"]["id"] == "paper-2"
 
 
 def test_restore_next_paper_id_uses_last_paper_ready_event(monkeypatch) -> None:

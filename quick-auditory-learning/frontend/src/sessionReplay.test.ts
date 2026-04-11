@@ -152,6 +152,51 @@ describe("sessionReplay helpers", () => {
     expect(state.hits[0].paper.id).toBe("p-next");
   });
 
+  it("preserves the next candidate when paper_ready follows an early search update", () => {
+    const snapshot: SessionSnapshot = {
+      session_id: "session-1",
+      status: "running",
+      root_source_url: "https://arxiv.org/abs/1",
+      root_paper_id: "p-root",
+      current_paper_id: "p-current",
+      next_paper_id: null,
+      next_event_seq: 10,
+      config: {},
+    };
+    const events: SessionEventMessage[] = [
+      { type: "session_started", seq: 1, session_id: "session-1" },
+      {
+        type: "paper_search_updated",
+        seq: 2,
+        session_id: "session-1",
+        paper_id: "p-next",
+        next_paper_id: "p-alt",
+        search: { hits: [{ paper: { id: "p-alt", title: "Alt", abstract: "", categories: [] }, score: 1, route1_score: 1, route2_score: 1 }], rejected_candidates: [], fallback_used: false },
+      },
+      {
+        type: "paper_ready",
+        seq: 3,
+        session_id: "session-1",
+        from_paper_id: "p-current",
+        paper: { id: "p-next", title: "Next", abstract: "", categories: [] },
+        origin: "search",
+        search_deferred: true,
+        simple_search_query: "q2",
+        search_modes: ["simple"],
+        trail_paper_ids: ["p-current"],
+        next_paper_id: null,
+        search: { hits: [], rejected_candidates: [], fallback_used: true },
+      },
+    ];
+
+    const state = replaySessionEvents(snapshot, events);
+
+    expect(state.currentPaper?.id).toBe("p-next");
+    expect(state.searchPaperId).toBe("p-next");
+    expect(state.nextPaperId).toBe("p-alt");
+    expect(state.hits[0].paper.id).toBe("p-alt");
+  });
+
   it("carries previous rejected candidates into the next paper replay state", () => {
     const snapshot: SessionSnapshot = {
       session_id: "session-1",

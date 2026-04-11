@@ -1,6 +1,7 @@
 import type { AppSessionState } from "./appSessionState";
 import { buildSessionMessageStatePatch, type SessionMessageStatePatch } from "./sessionMessageState";
 import type { SessionCosts, SessionEventMessage } from "./api";
+import type { SessionOperationKind } from "./sessionOperationState";
 
 export type SessionMessageHandlerResult = {
   patch: SessionMessageStatePatch | null;
@@ -10,6 +11,7 @@ export type SessionMessageHandlerResult = {
   paperCosts: SessionCosts | null;
   refreshHistory: boolean;
   refreshSessions: boolean;
+  operationToMarkLoading: SessionOperationKind | null;
 };
 
 export function buildSessionMessageHandlerResult(
@@ -26,10 +28,11 @@ export function buildSessionMessageHandlerResult(
       paperCosts: currentPaperId && message.paper_id === currentPaperId ? message.paper_costs ?? null : null,
       refreshHistory: false,
       refreshSessions: false,
+      operationToMarkLoading: null,
     };
   }
 
-  if (message.type === "session_advanced" || message.type === "session_regenerated") {
+  if (message.type === "session_next_requested" || message.type === "session_advanced" || message.type === "session_regenerated") {
     return {
       patch: null,
       errorMessage: null,
@@ -38,6 +41,7 @@ export function buildSessionMessageHandlerResult(
       paperCosts: null,
       refreshHistory: true,
       refreshSessions: true,
+      operationToMarkLoading: message.type === "session_regenerated" ? "regenerate" : "next",
     };
   }
 
@@ -50,6 +54,7 @@ export function buildSessionMessageHandlerResult(
       paperCosts: null,
       refreshHistory: false,
       refreshSessions: false,
+      operationToMarkLoading: null,
     };
   }
 
@@ -62,5 +67,6 @@ export function buildSessionMessageHandlerResult(
     paperCosts: null,
     refreshHistory: false,
     refreshSessions: false,
+    operationToMarkLoading: null,
   };
 }

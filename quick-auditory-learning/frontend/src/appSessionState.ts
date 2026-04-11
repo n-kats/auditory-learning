@@ -114,7 +114,6 @@ export function applyPaperReadyToAppSessionState(
     keywordSearchQuery: payload.keyword_search_query ?? payload.search_keyword ?? payload.followup_query ?? "",
     fulltextSearchQuery: payload.fulltext_search_query ?? "",
     searchModes: payload.search_modes ?? [],
-    nextPaperId: payload.next_paper_id ?? null,
     explanation: payload.explanation ?? "",
     paperCosts: payload.paper_costs ?? null,
     sessionCosts: payload.session_costs ?? null,
@@ -123,6 +122,8 @@ export function applyPaperReadyToAppSessionState(
     audioIndex: 0,
     audioDurationMs: null,
     trailPaperIds: payload.trail_paper_ids ?? [],
+    nextPaperId:
+      payload.next_paper_id ?? (state.searchPaperId === payload.paper.id ? state.nextPaperId : null),
     paperTitleMap: {
       ...state.paperTitleMap,
       [payload.paper.id]: payload.paper.title,

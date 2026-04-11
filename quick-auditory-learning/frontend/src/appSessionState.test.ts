@@ -236,6 +236,99 @@ describe("appSessionState helpers", () => {
     expect(state.hits[0].paper.id).toBe("paper-2");
   });
 
+  it("preserves the next candidate when paper_ready follows an early search update", () => {
+    let state = emptyAppSessionState();
+    state = applySessionStartedToAppSessionState(state, "session-1");
+    state = applySearchUpdatedToAppSessionState(state, {
+      session_id: "session-1",
+      paper_id: "paper-2",
+      next_paper_id: "paper-3",
+      simple_search_query: "q2",
+      search_modes: ["simple"],
+      search: {
+        hits: [{ paper: { id: "paper-3", title: "Paper 3", abstract: "", categories: [] }, score: 1, route1_score: 1, route2_score: 1 }],
+        rejected_candidates: [],
+        fallback_used: false,
+      },
+    });
+
+    state = applyPaperReadyToAppSessionState(state, {
+      session_id: "session-1",
+      search_deferred: true,
+      paper: { id: "paper-2", title: "Paper 2", abstract: "", categories: [] },
+      origin: "search",
+      trail_paper_ids: ["paper-1"],
+      next_paper_id: null,
+      simple_search_query: "q2",
+      keyword_search_query: "q2",
+      fulltext_search_query: "q2",
+      search_modes: ["simple"],
+      explanation: "exp-2",
+      memo: "memo-2",
+      audio_urls: ["/audio/2"],
+      audio_duration_ms: 1200,
+      notices: [],
+      paper_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      session_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      search: { hits: [], rejected_candidates: [], fallback_used: true },
+    });
+
+    expect(state.searchPaperId).toBe("paper-2");
+    expect(state.nextPaperId).toBe("paper-3");
+    expect(state.hits[0].paper.id).toBe("paper-3");
+  });
+
+  it("replaces the current paper when a later paper_ready arrives for the same session", () => {
+    let state = emptyAppSessionState();
+    state = applySessionStartedToAppSessionState(state, "session-1");
+    state = applyPaperReadyToAppSessionState(state, {
+      session_id: "session-1",
+      search_deferred: true,
+      paper: { id: "paper-1", title: "Paper 1", abstract: "", categories: [] },
+      origin: "search",
+      trail_paper_ids: [],
+      next_paper_id: "paper-2",
+      simple_search_query: "q1",
+      keyword_search_query: "q1",
+      fulltext_search_query: "q1",
+      search_modes: ["simple"],
+      explanation: "exp-1",
+      memo: "memo-1",
+      audio_urls: ["/audio/1"],
+      audio_duration_ms: 1200,
+      notices: [],
+      paper_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      session_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      search: { hits: [], rejected_candidates: [], fallback_used: true },
+    });
+    state = applyPaperReadyToAppSessionState(state, {
+      session_id: "session-1",
+      search_deferred: true,
+      paper: { id: "paper-2", title: "Paper 2", abstract: "", categories: [] },
+      origin: "search",
+      trail_paper_ids: ["paper-1"],
+      next_paper_id: null,
+      simple_search_query: "q2",
+      keyword_search_query: "q2",
+      fulltext_search_query: "q2",
+      search_modes: ["simple"],
+      explanation: "exp-2",
+      memo: "memo-2",
+      audio_urls: ["/audio/2"],
+      audio_duration_ms: 1200,
+      notices: [],
+      paper_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      session_costs: { session_id: "session-1", total_elapsed_ms: 1, total_wall_elapsed_ms: 1, total_cost_usd: 1, items: [] },
+      search: { hits: [], rejected_candidates: [], fallback_used: true },
+    });
+
+    expect(state.currentPaper?.id).toBe("paper-2");
+    expect(state.explanation).toBe("exp-2");
+    expect(state.audioUrls).toEqual(["/audio/2"]);
+    expect(state.paperTitleMap["paper-1"]).toBe("Paper 1");
+    expect(state.paperTitleMap["paper-2"]).toBe("Paper 2");
+  });
+
   it("applies replay state without losing unrelated app state", () => {
     const state = {
       ...emptyAppSessionState(),

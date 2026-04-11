@@ -392,16 +392,6 @@ button:disabled {
   transform: translateY(-1px);
 }
 
-.current-session-action-button.is-active {
-  border-color: rgba(41, 108, 66, 0.16);
-  background: #e8f3ea;
-  color: #2c5b38;
-}
-
-.current-session-action-button.is-active:hover:not(:disabled) {
-  background: #dfece3;
-}
-
 .favorite-action.is-active,
 .result-favorite-button.is-active {
   border-color: rgba(181, 35, 24, 0.18);
@@ -757,7 +747,11 @@ button:disabled {
   opacity: 1;
 }
 
-.result-item.is-selected .result-row,
+.result-item.is-selected .result-row {
+  border-radius: 12px;
+  background: rgba(232, 243, 234, 0.72);
+}
+
 .result-item.is-next-candidate .result-row {
   border-radius: 12px;
   background: rgba(232, 243, 234, 0.72);
@@ -798,14 +792,23 @@ button:disabled {
   transform: translateY(-1px);
 }
 
-.result-item.is-selected .result-next-button,
+.result-item.is-selected .result-next-button {
+  border-color: rgba(41, 108, 66, 0.16);
+  background: #e8f3ea;
+  color: #2c5b38;
+}
+
 .result-item.is-next-candidate .result-next-button {
   border-color: rgba(41, 108, 66, 0.16);
   background: #e8f3ea;
   color: #2c5b38;
 }
 
-.result-item.is-selected .result-next-button:hover:not(:disabled),
+.result-item.is-selected .result-next-button:hover:not(:disabled) {
+  background: #dfece3;
+  border-color: rgba(41, 108, 66, 0.2);
+}
+
 .result-item.is-next-candidate .result-next-button:hover:not(:disabled) {
   background: #dfece3;
   border-color: rgba(41, 108, 66, 0.2);
@@ -821,7 +824,12 @@ button:disabled {
   border: 1px solid rgba(29, 27, 23, 0.08);
 }
 
-.result-card.is-selected,
+.result-card.is-selected {
+  background: #e8f3ea;
+  border-color: rgba(41, 108, 66, 0.16);
+  color: #2c5b38;
+}
+
 .result-card.is-next-candidate {
   background: #e8f3ea;
   border-color: rgba(41, 108, 66, 0.16);
@@ -836,7 +844,10 @@ button:disabled {
 
 .result-item.is-selected .result-title-line h3,
 .result-item.is-selected .result-meta,
-.result-item.is-selected .paper-id,
+.result-item.is-selected .paper-id {
+  color: #2c5b38;
+}
+
 .result-item.is-next-candidate .result-title-line h3,
 .result-item.is-next-candidate .result-meta,
 .result-item.is-next-candidate .paper-id {
