@@ -34,6 +34,8 @@
 - `WebSocket is not connected` の RuntimeError は websocket 切断時の後始末として吸収するようにした
 - `session_next_candidate_updated` を stale search 扱いにしないよう、検索更新との判定を分離した
 - `next` ボタン同期の再現テストを追加した
+- `paper_ready` / `session_started` で start タブから session タブへ強制移動しないようにした
+- remote 更新でタブが奪われない再現テストを追加した
 
 ## 確認済み
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'session_stream_broadcasts_next_to_two_clients or session_stream_binds_resume_even_when_no_events_are_returned or session_stream_sends_start_events_before_pending_search_updates or session_stream_emits_start_flow_events'`

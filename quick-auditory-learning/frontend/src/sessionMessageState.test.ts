@@ -31,7 +31,7 @@ describe("sessionMessageState", () => {
     expect(patch?.nextState?.currentPaper?.id).toBe("paper-a");
     expect(patch?.shouldRefreshHistory).toBe(true);
     expect(patch?.shouldRefreshSessions).toBe(true);
-    expect(patch?.shouldActivateSessionTab).toBe(true);
+    expect(patch?.shouldActivateSessionTab).toBe(false);
     expect(patch?.shouldClearOperationState).toBe(true);
     expect(patch?.shouldUpdatePlayingState).toBe(true);
   });
@@ -73,8 +73,13 @@ describe("sessionMessageState", () => {
     expect(patch?.nextState?.currentSessionId).toBe("session-a");
     expect(patch?.shouldRefreshHistory).toBe(true);
     expect(patch?.shouldRefreshSessions).toBe(true);
-    expect(patch?.shouldActivateSessionTab).toBe(true);
+    expect(patch?.shouldActivateSessionTab).toBe(false);
     expect(patch?.shouldClearOperationState).toBe(false);
+  });
+
+  it("does not force the session tab for remote session progress", () => {
+    const patch = buildSessionMessageStatePatch(emptyAppSessionState(), makePaperReadyMessage({ session_id: "session-b" }));
+    expect(patch?.shouldActivateSessionTab).toBe(false);
   });
 
   it("keeps the current paper when the same-session session_started arrives after paper_ready", () => {
