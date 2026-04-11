@@ -17,17 +17,11 @@
 - docker compose
 - `bash` で実行できるシェル
 
-起動は `docker compose` を使うので、まず次を確認してください。
-
-```bash
-docker compose version
-```
-
 このプロジェクトでは、永続データは `_data/`、キャッシュは `_cache/`、ログは `_tmp/` に置きます。
 
 ## 3. データ準備（Kaggle の arxiv-dataset）
 
-`backend` は 1 行 1 JSON の JSONL を読み込みます。Kaggle の `arxiv-dataset` を使う場合は、`https://www.kaggle.com/datasets/Cornell-University/arxiv` を想定しています。ダウンロードしたメタデータの JSONL を `_data/quick_auditory_learning/arxiv.jsonl` に置いてください。
+`backend` は 1 行 1 JSON の JSONL を読み込みます。Kaggle の `arxiv-dataset` を使う場合は、[Kaggle の arxiv データセット](https://www.kaggle.com/datasets/Cornell-University/arxiv) を想定しています。ダウンロードしたメタデータの JSONL を `_data/quick_auditory_learning/arxiv.jsonl` に置いてください。
 
 おすすめの手順は次のとおりです。
 
@@ -79,8 +73,6 @@ QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
 bash scripts/launch_quick_auditory_learning.sh
 ```
 
-開発用に別のデータやキャッシュを使いたいときは `--dev` を付けると、`_dev` 末尾のディレクトリを使います。
-
 起動すると、backend と frontend のログが流れます。`Ctrl-C` でログ追跡だけ止まり、コンテナはそのまま動きます。
 
 起動後は、ブラウザで `http://localhost:5173` を開いてください。
@@ -95,9 +87,3 @@ bash scripts/down_quick_auditory_learning.sh
 
 - `QUICK_AUDITORY_LEARNING_JSONL_PATH` を変えた場合、起動スクリプトがその親ディレクトリを bind mount します
 - JSONL の初回 import と同期は backend 起動後に自動で走ります
-- 手動で JSONL を import したい場合は次のコマンドを使えます
-
-```bash
-cd quick-auditory-learning/backend
-uv run python -m quick_auditory_learning.cli import-jsonl /workspace/_data/quick_auditory_learning/arxiv.jsonl
-```

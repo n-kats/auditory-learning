@@ -59,6 +59,10 @@
 - `launch_quick_auditory_learning.sh --dev` で `_dev` 末尾のデータ/キャッシュ/ログを使うようにした
 - README に `--dev` の `_dev` ディレクトリ切り替え説明を追加した
 - `bash -n scripts/launch_quick_auditory_learning.sh` でシェル構文を確認した
+- README の Kaggle データセット URL をリンク化した
+- README から `--dev` の説明文を削除した
+- README から手動 JSONL import の案内を削除した
+- README から `docker compose version` の案内を削除した
 
 ## 確認済み
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'session_stream_broadcasts_next_to_two_clients or session_stream_binds_resume_even_when_no_events_are_returned or session_stream_sends_start_events_before_pending_search_updates or session_stream_emits_start_flow_events'`
