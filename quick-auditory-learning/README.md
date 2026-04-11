@@ -1,97 +1,103 @@
 # quick-auditory-learning
 
-`arXiv` の JSONL アブスト一覧をローカルで取り込み、全文検索と埋め込みベクトル検索を組み合わせて session 単位で大量再生するための実験用プロジェクト。
+`arXiv` 論文のメタデータを取り込み、検索結果から解説文と音声を生成して、session 単位で連続再生する実験用ツールです。
 
-## 目標
-- JSONL をインポートして論文メタデータを保持する。
-- Postgres で全文検索とベクトル検索を扱う。
-- お気に入りと再生履歴を UI から操作する。
-- 解説音声をキャッシュする。
-- ブラウザは arXiv URL で session を開始し、WebSocket で論文、解説、音声、次の候補を受け取る。
+## 1. 簡単なツール説明
 
-## 起動
+- Kaggle の `arxiv-dataset` など、`arXiv` メタデータの JSONL を取り込む
+- Postgres で論文メタデータ、検索、セッション状態を管理する
+- 検索候補から次の論文を選び、解説文と VOICEVOX 音声を再生する
+- 同じ session を複数のブラウザで開いたときは、操作と進行状態を同期する
+
+## 2. 環境準備（Docker）
+
+必要なものは以下です。
+
+- `docker`
+- docker compose
+- `bash` で実行できるシェル
+
+起動は `docker compose` を使うので、まず次を確認してください。
+
+```bash
+docker compose version
+```
+
+このプロジェクトでは、永続データは `_data/`、キャッシュは `_cache/`、ログは `_tmp/` に置きます。
+
+## 3. データ準備（Kaggle の arxiv-dataset）
+
+`backend` は 1 行 1 JSON の JSONL を読み込みます。Kaggle の `arxiv-dataset` を使う場合は、`https://www.kaggle.com/datasets/Cornell-University/arxiv` を想定しています。ダウンロードしたメタデータの JSONL を `_data/quick_auditory_learning/arxiv.jsonl` に置いてください。
+
+おすすめの手順は次のとおりです。
+
+1. Kaggle にログインし、`arxiv-dataset` をダウンロードする
+2. 展開して、メタデータの JSONL ファイルを取り出す
+3. そのファイルを `_data/quick_auditory_learning/arxiv.jsonl` に置く
+
+利用前に Kaggle の利用規約と、対象データセットのライセンスやデータカードの注意事項を確認してください。配布条件や再利用条件はデータセットごとに異なります。
+
+別の場所に置く場合は、`.env` の `QUICK_AUDITORY_LEARNING_JSONL_PATH` を変更してください。
+
+## 4. .env の記述
+
+ワークスペース直下の `.env` に設定を書きます。`bash scripts/launch_quick_auditory_learning.sh` はこの `.env` を読み込みます。
+
+```dotenv
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+QUICK_AUDITORY_LEARNING_JSONL_PATH=_data/quick_auditory_learning/arxiv.jsonl
+QUICK_AUDITORY_LEARNING_HOST=localhost
+QUICK_AUDITORY_LEARNING_BACKEND_PORT=8000
+QUICK_AUDITORY_LEARNING_FRONTEND_PORT=5173
+QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME=text-embedding-3-large
+QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
+```
+
+- 必須: `OPENAI_API_KEY`。検索と解説生成を使うときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_JSONL_PATH`。既定の `_data/quick_auditory_learning/arxiv.jsonl` 以外に JSONL を置くときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_HOST`。別 PC やスマホからアクセスするとき、または `localhost` 以外のホスト名や IP アドレスで開きたいときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_BACKEND_PORT`。別のアプリとポートがぶつかるときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`。別のアプリとポートがぶつかるときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`。検索で使う埋め込みモデル名を変えるときに設定する
+- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する
+
+補足:
+
+- `OPENAI_API_KEY` の代わりに `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を使ってもよい
+- `QUICK_AUDITORY_LEARNING_JSONL_PATH` を書かない場合は、既定の `_data/quick_auditory_learning/arxiv.jsonl` を使う
+- 別 PC やスマホから開くときは、その端末から見えるホスト名か IP アドレスを `QUICK_AUDITORY_LEARNING_HOST` に入れる。`localhost` は自分の端末を指す
+- 家の中や社内などのローカルネットワーク内だけで使うなら、その範囲からだけ見えるホスト名か IP アドレスを使い、外部公開は避ける
+- 外部ネットワークから公開する場合は、必要なポートだけを開ける。Docker のポート公開設定、OS のファイアウォール、ルータの転送設定を確認し、過剰に公開しない
+
+`.env` を使わずに環境変数で直接渡しても構いませんが、起動スクリプトを使う場合はワークスペース直下の `.env` を置くのが最も簡単です。
+
+## 5. 起動・アクセス
+
+起動します。
+
 ```bash
 bash scripts/launch_quick_auditory_learning.sh
 ```
 
-起動後は `backend` / `frontend` の `logs -f` を流し続けるので、`Ctrl-C` でログ追跡だけ止まる。`db` と `voicevox` は追わないのでログがうるさくならない。コンテナ停止は `down` を使う。
+開発用に別のデータやキャッシュを使いたいときは `--dev` を付けると、`_dev` 末尾のディレクトリを使います。
 
-JSONL の初回確認と import は backend 起動後にバックグラウンドで走る。
-backend は Postgres の準備待ちで起動を止めず、DB 初期化はバックグラウンドで進める。
-埋め込みベクトルは検索時に必要になった論文だけを自動生成してキャッシュする。事前全件生成はしない。
-検索で候補が拾えないときは、ランダムな論文を返して処理を止めない。
-session の本線は `WebSocket /sessions/ws` で進める。ブラウザは `start` で session を始め、`next` で次の論文へ進み、`resume` で再接続する。
+起動すると、backend と frontend のログが流れます。`Ctrl-C` でログ追跡だけ止まり、コンテナはそのまま動きます。
 
-ログは `_tmp/quick_auditory_learning/logs/backend.log` にも出る。
-`QUICK_AUDITORY_LEARNING_JSONL_PATH` を変えた場合、その親ディレクトリは自動で bind mount され、backend ではその同じ絶対パスとして読まれる。
-JSONL import の進捗は百分率付きで console と `backend.log` に出る。
-`/config` で `OPENAI_API_KEY` の有無と JSONL の存在確認を見られる。
-検索や解説生成が失敗したときは、backend の `detail` と `backend.log` の両方を確認する。
+起動後は、ブラウザで `http://localhost:5173` を開いてください。
 
-session では、現在の論文の title/abstract から検索語を作って次候補を探す。候補が 0 件のときはランダムな論文を返して処理を止めない。解説は DB に保存し、音声は失敗しても止めずに準備を試みる。音声は chunk 単位で作り、UI では連続再生に見せて、再生が終わったら WebSocket で次を要求する。session が切れても `session_id` とイベント seq で再接続できる。
-
-停止は次を使う。
+停止します。
 
 ```bash
 bash scripts/down_quick_auditory_learning.sh
 ```
 
-このプロジェクトでは Docker の named volume は使わず、永続データは `_data/`、キャッシュは `_cache/` をホスト側の bind mount で持つ。
+## 補足
 
-## host/port を変える
-`.env` に以下を設定してから起動する。
+- `QUICK_AUDITORY_LEARNING_JSONL_PATH` を変えた場合、起動スクリプトがその親ディレクトリを bind mount します
+- JSONL の初回 import と同期は backend 起動後に自動で走ります
+- 手動で JSONL を import したい場合は次のコマンドを使えます
 
-```dotenv
-QUICK_AUDITORY_LEARNING_HOST=localhost
-QUICK_AUDITORY_LEARNING_BACKEND_PORT=8000
-QUICK_AUDITORY_LEARNING_FRONTEND_PORT=5173
-QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME=text-embedding-3-large
-QUICK_AUDITORY_LEARNING_JSONL_PATH=/path/to/arxiv.jsonl
-```
-
-- `QUICK_AUDITORY_LEARNING_HOST`: ブラウザから見える API のホスト名
-- `QUICK_AUDITORY_LEARNING_BACKEND_PORT`: backend の公開ポート
-- `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`: frontend の公開ポート
-- `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`: 検索で使う埋め込みモデル名の既定値
-- `QUICK_AUDITORY_LEARNING_JSONL_PATH`: 取り込み対象の arXiv JSONL
-- `QUICK_AUDITORY_LEARNING_JSONL_DIR_HOST`: `QUICK_AUDITORY_LEARNING_JSONL_PATH` の親ディレクトリをホスト側で bind mount するための値
-- `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`: docker compose では `http://voicevox:50021` を使う。`VOICEVOX_URL` でも読める。
-- `/config`: backend の診断用エンドポイント。OpenAI 設定や JSONL の存在を返す。
-
-## 開発時の主な環境変数
-- `OPENAI_API_KEY`
-- `QUICK_AUDITORY_LEARNING_DATA_DIR`
-- `QUICK_AUDITORY_LEARNING_CACHE_DIR`
-- `QUICK_AUDITORY_LEARNING_LOG_DIR`
-- `QUICK_AUDITORY_LEARNING_POSTGRES_DSN`
-- `QUICK_AUDITORY_LEARNING_JSONL_PATH`
-- `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`
-- `QUICK_AUDITORY_LEARNING_EXPLANATION_MODEL`
-- `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`
-- `QUICK_AUDITORY_LEARNING_VOICEVOX_SPEAKER_ID`
-- `QUICK_AUDITORY_LEARNING_VOICEVOX_SPEED_SCALE`
-- `QUICK_AUDITORY_LEARNING_VOICEVOX_VOLUME_SCALE`
-- `VITE_API_BASE_URL`
-
-`OPENAI_API_KEY` か `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` のどちらかが backend に届いていれば検索と解説生成は使える。
-両方無い場合でも backend は起動するが、検索と解説生成は利用できない。
-その場合は `503` で理由を返す。
-検索時に埋め込みが無い場合は、候補論文だけをその場で生成してキャッシュする。
-
-## backend CLI
 ```bash
 cd quick-auditory-learning/backend
-uv run python -m quick_auditory_learning.cli import-jsonl /path/to/arxiv.jsonl
+uv run python -m quick_auditory_learning.cli import-jsonl /workspace/_data/quick_auditory_learning/arxiv.jsonl
 ```
-
-## データ配置
-- 永続データ: `_data/quick_auditory_learning/`
-- キャッシュ: `_cache/quick-auditory-learning/`
-- ログ: `_tmp/quick_auditory_learning/logs/`
-- Postgres は compose 内部通信のみで使い、ホストの `5432` には公開しない。
-- `voicevox` も compose 内部通信のみで使い、ホストの `50021` には公開しない。
-
-## 構成
-- `backend/`: FastAPI バックエンド
-- `frontend/`: React + Vite フロントエンド
-- `docker-compose.yml`: 起動定義

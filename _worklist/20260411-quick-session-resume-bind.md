@@ -36,6 +36,29 @@
 - `next` ボタン同期の再現テストを追加した
 - `paper_ready` / `session_started` で start タブから session タブへ強制移動しないようにした
 - remote 更新でタブが奪われない再現テストを追加した
+- `quick-auditory-learning/README.md` を、ツール説明 / Docker 準備 / Kaggle データ準備 / `.env` / 起動・アクセス の順で整理した
+- `.env` の配置先をワークスペース直下に揃え、起動スクリプトの実挙動と一致させた
+- README 冒頭から FastAPI / React / Vite / compose サービス列挙の実装説明を外した
+- README のアクセス先から backend 直アクセス案内と診断 URL を外した
+- README のアクセス先をフロントエンド URL のみに絞った
+- README のアクセス案内を箇条書きから自然文に直した
+- README の環境準備表記を `docker` と `docker compose` に揃えた
+- README に Kaggle の `arxiv-dataset` URL と利用規約・ライセンス確認の注意を追加した
+- README のデータ配置例の tree 表示を削除した
+- README のデータ準備の文章を自然な流れに直した
+- README の「arxiv.jsonl にそろえると使いやすい」文を削った
+- README の `.env` を最小構成に絞り、既定値のある項目を削った
+- README の `.env` 項目を必須 / 任意 / 通常不要で明示する形に戻した
+- README の `.env` 項目を、どの場面で設定するかを書く形に直した
+- README の `.env` 項目の表示を `必須` / `任意` に戻した
+- README の `QUICK_AUDITORY_LEARNING_JSONL_PATH` の例を既定値と同じ相対パスに直した
+- README の `QUICK_AUDITORY_LEARNING_HOST` の説明を別 PC / スマホからのアクセス用途に直した
+- README に別 PC / スマホから開くときのホスト名・IP・公開設定の注意を追加した
+- README に、外部公開時は必要なポートだけ開ける注意を追加した
+- README に、ローカルネットワーク内だけで使うなら外部公開を避ける注意を追加した
+- `launch_quick_auditory_learning.sh --dev` で `_dev` 末尾のデータ/キャッシュ/ログを使うようにした
+- README に `--dev` の `_dev` ディレクトリ切り替え説明を追加した
+- `bash -n scripts/launch_quick_auditory_learning.sh` でシェル構文を確認した
 
 ## 確認済み
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'session_stream_broadcasts_next_to_two_clients or session_stream_binds_resume_even_when_no_events_are_returned or session_stream_sends_start_events_before_pending_search_updates or session_stream_emits_start_flow_events'`

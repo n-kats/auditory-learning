@@ -21,16 +21,24 @@ fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dev)
-      : "${QUICK_AUDITORY_LEARNING_DATA_DIR:=/workspace/_data/quick_auditory_learning}"
-      : "${QUICK_AUDITORY_LEARNING_CACHE_DIR:=/workspace/_cache/quick-auditory-learning}"
-      : "${QUICK_AUDITORY_LEARNING_JSONL_PATH:=/workspace/_data/quick_auditory_learning/arxiv.jsonl}"
+      : "${QUICK_AUDITORY_LEARNING_DATA_DIR:=/workspace/_data/quick_auditory_learning_dev}"
+      : "${QUICK_AUDITORY_LEARNING_CACHE_DIR:=/workspace/_cache/quick-auditory-learning_dev}"
+      : "${QUICK_AUDITORY_LEARNING_LOG_DIR:=/workspace/_tmp/quick_auditory_learning_dev/logs}"
+      : "${QUICK_AUDITORY_LEARNING_JSONL_PATH:=/workspace/_data/quick_auditory_learning_dev/arxiv.jsonl}"
       : "${QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME:=text-embedding-3-large}"
       : "${QUICK_AUDITORY_LEARNING_VOICEVOX_URL:=http://voicevox:50021}"
+      : "${QUICK_AUDITORY_LEARNING_DATA_DIR_HOST:=$(pwd)/_data/quick_auditory_learning_dev}"
+      : "${QUICK_AUDITORY_LEARNING_CACHE_DIR_HOST:=$(pwd)/_cache/quick-auditory-learning_dev}"
+      : "${QUICK_AUDITORY_LEARNING_LOG_DIR_HOST:=$(pwd)/_tmp/quick_auditory_learning_dev/logs}"
       export QUICK_AUDITORY_LEARNING_DATA_DIR
       export QUICK_AUDITORY_LEARNING_CACHE_DIR
+      export QUICK_AUDITORY_LEARNING_LOG_DIR
       export QUICK_AUDITORY_LEARNING_JSONL_PATH
       export QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME
       export QUICK_AUDITORY_LEARNING_VOICEVOX_URL
+      export QUICK_AUDITORY_LEARNING_DATA_DIR_HOST
+      export QUICK_AUDITORY_LEARNING_CACHE_DIR_HOST
+      export QUICK_AUDITORY_LEARNING_LOG_DIR_HOST
       ;;
     -h|--help)
       usage
