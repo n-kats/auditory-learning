@@ -63,6 +63,14 @@
 - README から `--dev` の説明文を削除した
 - README から手動 JSONL import の案内を削除した
 - README から `docker compose version` の案内を削除した
+- `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を `OPENAI_API_KEY` より優先するようにした
+- README にその優先順位を明記した
+- docker-compose.yml の env 順序変更は不要だったので戻した
+- README の補足で `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` の優先順位を先頭に出した
+- README の補足を自然文に直し、`QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` の唐突さをなくした
+- README の `.env` 一覧で `OPENAI_API_KEY` と代替キーの関係が分かるようにした
+- README の `OPENAI_API_KEY` の必須表記を、どちらか一方が必須という形に直した
+- README の `OPENAI_API_KEY` 必須行に `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` の優先順位をまとめた
 
 ## 確認済み
 - `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest /workspace/tests/test_quick_auditory_learning.py -q -k 'session_stream_broadcasts_next_to_two_clients or session_stream_binds_resume_even_when_no_events_are_returned or session_stream_sends_start_events_before_pending_search_updates or session_stream_emits_start_flow_events'`

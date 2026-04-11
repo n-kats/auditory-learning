@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     postgres_dsn: str = "postgresql://quick_auditory_learning:quick_auditory_learning@db:5432/quick_auditory_learning"
     openai_api_key: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("OPENAI_API_KEY", "QUICK_AUDITORY_LEARNING_OPENAI_API_KEY"),
+        validation_alias=AliasChoices("QUICK_AUDITORY_LEARNING_OPENAI_API_KEY", "OPENAI_API_KEY"),
     )
     jsonl_path: Path | None = None
     embedding_model_name: str = "text-embedding-3-large"
