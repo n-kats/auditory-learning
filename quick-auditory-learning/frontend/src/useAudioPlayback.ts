@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import { clampAudioRate, clampAudioVolume, loadAudioRate, loadAudioVolume } from "./audioPlayback";
+import {
+  clampAudioRate,
+  clampAudioVolume,
+  loadAudioRate,
+  loadAudioVolume,
+  resolveShouldAutoPlayAfterReset,
+} from "./audioPlayback";
 
 export function useAudioPlayback() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -79,12 +85,12 @@ export function useAudioPlayback() {
     }
   };
 
-  const resetAudio = () => {
+  const resetAudio = (options?: { shouldAutoPlay?: boolean }) => {
     setAudioUrls([]);
     setAudioIndex(0);
     setAudioDurationMs(null);
     setIsPlaying(false);
-    shouldAutoPlayRef.current = true;
+    shouldAutoPlayRef.current = resolveShouldAutoPlayAfterReset(options);
   };
 
   return {

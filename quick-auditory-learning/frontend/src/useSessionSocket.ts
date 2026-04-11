@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { toWebSocketUrl, type SessionEventMessage } from "./api";
 import { buildResumePayload, buildStopPayload, shouldReconnectAfterClose, type SessionSocketStatus } from "./sessionSocket";
+import { createSequentialAsyncQueue } from "./sessionMessageQueue";
 
 type UseSessionSocketOptions = {
   onError: (message: string) => void;
@@ -14,7 +15,17 @@ export function useSessionSocket({ onError }: UseSessionSocketOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const lastEventSeqRef = useRef(0);
   const manualStopRef = useRef(false);
+  const onErrorRef = useRef(onError);
   const onMessageRef = useRef<(message: SessionEventMessage) => void | Promise<void>>(() => undefined);
+  const messageQueueRef = useRef(
+    createSequentialAsyncQueue((caught: unknown) => {
+      onErrorRef.current(caught instanceof Error ? caught.message : "invalid session message");
+    }),
+  );
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   const scheduleReconnect = () => {
     const sessionId = sessionIdRef.current;
@@ -66,9 +77,9 @@ export function useSessionSocket({ onError }: UseSessionSocketOptions) {
       }
       try {
         const message = JSON.parse(event.data) as SessionEventMessage;
-        void onMessageRef.current(message);
+        void messageQueueRef.current.enqueue(() => onMessageRef.current(message));
       } catch (caught: unknown) {
-        onError(caught instanceof Error ? caught.message : "invalid session message");
+        onErrorRef.current(caught instanceof Error ? caught.message : "invalid session message");
       }
     };
     socket.onerror = () => {
@@ -100,9 +111,9 @@ export function useSessionSocket({ onError }: UseSessionSocketOptions) {
     };
   }, []);
 
-  return {
-    socketRef,
-    reconnectTimerRef,
+    return {
+      socketRef,
+      reconnectTimerRef,
     sessionIdRef,
     lastEventSeqRef,
     manualStopRef,

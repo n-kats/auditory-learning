@@ -758,7 +758,7 @@ button:disabled {
 }
 
 .result-item.is-selected .result-row,
-.result-item.is-queued .result-row {
+.result-item.is-next-candidate .result-row {
   border-radius: 12px;
   background: rgba(232, 243, 234, 0.72);
 }
@@ -799,14 +799,14 @@ button:disabled {
 }
 
 .result-item.is-selected .result-next-button,
-.result-item.is-queued .result-next-button {
+.result-item.is-next-candidate .result-next-button {
   border-color: rgba(41, 108, 66, 0.16);
   background: #e8f3ea;
   color: #2c5b38;
 }
 
 .result-item.is-selected .result-next-button:hover:not(:disabled),
-.result-item.is-queued .result-next-button:hover:not(:disabled) {
+.result-item.is-next-candidate .result-next-button:hover:not(:disabled) {
   background: #dfece3;
   border-color: rgba(41, 108, 66, 0.2);
 }
@@ -822,7 +822,7 @@ button:disabled {
 }
 
 .result-card.is-selected,
-.result-card.is-queued {
+.result-card.is-next-candidate {
   background: #e8f3ea;
   border-color: rgba(41, 108, 66, 0.16);
   color: #2c5b38;
@@ -837,9 +837,9 @@ button:disabled {
 .result-item.is-selected .result-title-line h3,
 .result-item.is-selected .result-meta,
 .result-item.is-selected .paper-id,
-.result-item.is-queued .result-title-line h3,
-.result-item.is-queued .result-meta,
-.result-item.is-queued .paper-id {
+.result-item.is-next-candidate .result-title-line h3,
+.result-item.is-next-candidate .result-meta,
+.result-item.is-next-candidate .paper-id {
   color: #2c5b38;
 }
 
@@ -1039,6 +1039,28 @@ button:disabled {
   margin: 0;
   font-size: 1.02rem;
   line-height: 1.25;
+}
+
+.session-paper-title {
+  margin: 0;
+  font-size: 0.92rem;
+  color: rgba(29, 27, 23, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.session-summary-session-id {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .session-open-button {

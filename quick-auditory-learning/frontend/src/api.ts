@@ -102,6 +102,7 @@ export type SessionCosts = {
 export type SessionSummary = {
   session_id: string;
   status: string;
+  session_websocket_connections: number;
   root_source_url: string;
   root_paper_id: string;
   root_paper_title?: string | null;
@@ -138,7 +139,6 @@ export type SessionEventMessage = {
   from_paper_id?: string | null;
   to_paper_id?: string | null;
   trail_paper_ids?: string[];
-  queued_paper_ids?: string[];
   next_paper_id?: string | null;
   simple_search_query?: string;
   followup_query?: string;
@@ -153,6 +153,7 @@ export type SessionEventMessage = {
   audio_urls?: string[];
   audio_duration_ms?: number | null;
   notices?: string[];
+  search_deferred?: boolean;
   paper_costs?: SessionCosts | null;
   session_costs?: SessionCosts | null;
   memo?: string;

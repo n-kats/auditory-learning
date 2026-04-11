@@ -28,6 +28,10 @@
 ## ドキュメント
 - `docs/images/`: UI スクリーンショット等のアセット。
 - `docs/spec/`: 仕様を置く。近い機能の仕様をまとめてよい。
+- `docs/spec/quick_auditory_learning.md`: quick-auditory-learning の論文取得、route、メモ、音声、セッションの高レベル仕様。
+- `docs/spec/quick_auditory_learning_messages.md`: quick-auditory-learning の session 種別と通信データ型の仕様。
+- `docs/spec/quick_auditory_learning_flow.md`: quick-auditory-learning の通信フロー仕様。
+- `docs/spec/quick_auditory_learning_implementation_notes.md`: quick-auditory-learning の実装上の注意点。
 - `docs/how_to/`: 手順を置く。`how_to_<項目名>.md` の形式で作成する。
 - `docs/coding_rule/`: コーディング規約を置く。言語別の規約、命名、フォーマット、例外方針を整理する。
 - `docs/web/`: 外部参照ログを置く。外部情報の参照記録を残す。

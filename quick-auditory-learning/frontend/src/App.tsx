@@ -1,29 +1,53 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   apiBaseUrl,
-  getHealth,
   getSessionEvents,
-  listFavorites,
   getSession,
-  recentHistory,
-  recentSessions,
   toggleFavorite,
   resolveAudioSourceUrl,
-  type Paper,
-  type FavoritePaperItem,
-  type SearchCandidate,
-  type SearchHit,
-  type SessionCosts,
   type SessionEventMessage,
-  type SessionSummary,
   type SessionSnapshot,
 } from "./api";
 import { SearchResultList } from "./SearchResultList";
 import { buildCostRows, formatAudioDurationNote, formatDurationSeconds, formatUsd } from "./costDisplay";
 import { useAudioPlayback } from "./useAudioPlayback";
+import {
+  applySessionStartedToAppSessionState,
+} from "./appSessionState";
+import {
+  buildNextSessionCommand,
+  buildPlaybackStartedSessionCommand,
+  buildSetNextCandidateCommand,
+  buildRegenerateSessionCommand,
+  buildStartSessionCommand,
+  buildStopSessionCommand,
+} from "./sessionCommands";
+import { formatHeaderStatus, formatSessionConnectionCount } from "./statusSummary";
 import { usePaperMemo } from "./usePaperMemo";
 import { replaySessionEvents } from "./sessionReplay";
+import { shouldIgnoreStaleSearch, shouldShowSearchResults } from "./sessionViewState";
+import {
+  buildSessionOperationFailurePatch,
+  buildSessionOperationIdlePatch,
+  buildSessionOperationStartPatch,
+  type SessionOperationKind,
+  type SessionOperationPatch,
+} from "./sessionOperationState";
+import { buildSessionMessageHandlerResult } from "./sessionMessageHandlers";
+import {
+  getNextSessionError,
+  getRegenerateSessionError,
+  getResumeAudioError,
+  getResumeSessionError,
+  getStartSessionError,
+} from "./sessionOperationChecks";
 import { useSessionSocket } from "./useSessionSocket";
+import { useBackendDirectoryData } from "./useBackendDirectoryData";
+import { useMediaSession } from "./useMediaSession";
+import { useAppSessionState } from "./useAppSessionState";
+import type { AppSessionState } from "./appSessionState";
+import { canSendSessionAction, shouldHighlightNextCandidateAction } from "./sessionActionAvailability";
+import { getSessionPanelMode, shouldShowSearchResultSections } from "./sessionPanelState";
 
 type SearchFormState = {
   sourceUrl: string;
@@ -38,7 +62,7 @@ type SearchFormState = {
 };
 
 type AppTab = "start" | "favorites" | "session";
-type PendingAction = "idle" | "start" | "next" | "regenerate" | "resume";
+type PendingAction = SessionOperationKind | "idle";
 
 const defaultForm: SearchFormState = {
   sourceUrl: "",
@@ -69,8 +93,8 @@ function formatPaperOrigin(origin: string | null): string {
   if (origin === "search") {
     return "検索";
   }
-  if (origin === "queue") {
-    return "キュー";
+  if (origin === "next_candidate") {
+    return "候補指定";
   }
   if (origin === "regenerate") {
     return "再生成";
@@ -107,13 +131,13 @@ function formatOptionalCostValue(value: number | null | undefined, formatter: (a
 function buildSearchResultState(params: {
   currentPaperId: string | null;
   paperId: string;
-  selectedNextPaperId: string | null;
+  nextCandidatePaperId: string | null;
   trailPaperIds: Set<string>;
   favoritePaperIds: Set<string>;
   canInteract: boolean;
 }): {
   isSelected: boolean;
-  isQueued: boolean;
+  isNextCandidate: boolean;
   isReplayed: boolean;
   isFavorite: boolean;
   canInteract: boolean;
@@ -121,7 +145,7 @@ function buildSearchResultState(params: {
   const isSelected = params.currentPaperId === params.paperId;
   return {
     isSelected,
-    isQueued: params.selectedNextPaperId === params.paperId,
+    isNextCandidate: params.nextCandidatePaperId === params.paperId,
     isReplayed: params.trailPaperIds.has(params.paperId) && !isSelected,
     isFavorite: params.favoritePaperIds.has(params.paperId),
     canInteract: params.canInteract,
@@ -184,33 +208,12 @@ export default function App() {
     modelName: import.meta.env.VITE_QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME?.trim() || "text-embedding-3-large",
   });
   const [activeTab, setActiveTab] = useState<AppTab>("start");
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [currentPaper, setCurrentPaper] = useState<Paper | null>(null);
-  const [currentPaperSource, setCurrentPaperSource] = useState<string | null>(null);
-  const [simpleSearchQuery, setSimpleSearchQuery] = useState<string>("");
-  const [keywordSearchQuery, setKeywordSearchQuery] = useState<string>("");
-  const [fulltextSearchQuery, setFulltextSearchQuery] = useState<string>("");
-  const [searchModes, setSearchModes] = useState<string[]>([]);
-  const [trailPaperIds, setTrailPaperIds] = useState<string[]>([]);
-  const [queuedPaperIds, setQueuedPaperIds] = useState<string[]>([]);
-  const [nextPaperId, setNextPaperId] = useState<string | null>(null);
-  const [hits, setHits] = useState<SearchHit[]>([]);
-  const [favorites, setFavorites] = useState<FavoritePaperItem[]>([]);
-  const [history, setHistory] = useState<Array<{ from_paper_id: string | null; to_paper_id: string }>>([]);
-  const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
   const [showAllSessions, setShowAllSessions] = useState(false);
-  const [rejectedCandidates, setRejectedCandidates] = useState<SearchCandidate[]>([]);
-  const [fallbackUsed, setFallbackUsed] = useState(false);
-  const [explanation, setExplanation] = useState<string>("");
-  const [paperCosts, setPaperCosts] = useState<SessionCosts | null>(null);
-  const [sessionCosts, setSessionCosts] = useState<SessionCosts | null>(null);
-  const [paperTitleMap, setPaperTitleMap] = useState<Record<string, string>>({});
-  const [backendNotices, setBackendNotices] = useState<string[]>([]);
   const [costTab, setCostTab] = useState<"paper" | "session">("paper");
   const [loading, setLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [databaseReady, setDatabaseReady] = useState(false);
+  const [selectedNextCandidatePaperId, setSelectedNextCandidatePaperId] = useState<string | null>(null);
   const {
     audioRef,
     shouldAutoPlayRef,
@@ -230,14 +233,71 @@ export default function App() {
     pauseAudio,
     resetAudio,
   } = useAudioPlayback();
-  const resumeAudioRef = useRef<() => void>(() => {});
-  const pauseAudioRef = useRef<() => void>(() => {});
-  const stopAudioRef = useRef<() => void>(() => {});
-  const audioUrlsLengthRef = useRef(0);
+  const {
+    databaseReady,
+    favorites,
+    history,
+    sessionSummaries,
+    refreshFavorites,
+    refreshHistory,
+    refreshSessions,
+  } = useBackendDirectoryData({
+    onError: (message) => {
+      setError(message);
+    },
+    onSuccess: () => {
+      setError(null);
+    },
+  });
   const favoriteSet = useMemo(() => new Set(favorites.map((favorite) => favorite.paper_id)), [favorites]);
-  const queuedPaperSet = useMemo(() => new Set(queuedPaperIds), [queuedPaperIds]);
-  const selectedNextPaperId = nextPaperId;
-  const trailPaperSet = useMemo(() => new Set(trailPaperIds), [trailPaperIds]);
+  const {
+    currentSessionId,
+    currentPaper,
+    currentPaperSource,
+    simpleSearchQuery,
+    keywordSearchQuery,
+    fulltextSearchQuery,
+    searchModes,
+    trailPaperIds,
+    nextPaperId,
+    searchPaperId,
+    hits,
+    previousSearchPaperId,
+    previousRejectedCandidates,
+    fallbackUsed,
+    explanation,
+    paperCosts,
+    sessionCosts,
+    paperTitleMap,
+    backendNotices,
+    setPaperCosts,
+    setSessionCosts,
+    setBackendNotices,
+    currentAppSessionState,
+    currentAppSessionStateRef,
+    applySessionViewState,
+    applyAppSessionState,
+    applyReplayToState,
+  } = useAppSessionState(favorites, {
+    audioUrls,
+    audioIndex,
+    audioDurationMs,
+  });
+  const displayNextCandidatePaperId = selectedNextCandidatePaperId ?? nextPaperId;
+  const applyAudioPlaybackState = (nextState: AppSessionState) => {
+    setAudioUrls(nextState.audioUrls);
+    setAudioIndex(nextState.audioIndex);
+    setAudioDurationMs(nextState.audioDurationMs);
+  };
+  const applySessionOperationPatch = (patch: SessionOperationPatch) => {
+    setError(patch.error);
+    setLoading(patch.loading);
+    setPendingAction(patch.pendingAction);
+    setBackendNotices(patch.backendNotices);
+    if (patch.shouldAutoPlay !== undefined) {
+      shouldAutoPlayRef.current = patch.shouldAutoPlay;
+    }
+  };
   const {
     paperMemo,
     setPaperMemo,
@@ -261,6 +321,14 @@ export default function App() {
       setError(message);
     },
   });
+  const resumeAudioRef = useRef<() => void>(() => {});
+  const pauseAudioRef = useRef<() => void>(() => {});
+  const stopAudioRef = useRef<() => void>(() => {});
+  const audioUrlsLengthRef = useRef(0);
+  const playbackStartedPaperIdRef = useRef<string | null>(null);
+  const searchPaperIdRef = useRef<string | null>(null);
+  const trailPaperSet = useMemo(() => new Set(trailPaperIds), [trailPaperIds]);
+  const searchResultsVisible = shouldShowSearchResults({ currentPaper, searchPaperId });
   const visibleSessionSummaries = useMemo(() => {
     const sortedSessions = [...sessionSummaries].sort(
       (left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
@@ -269,214 +337,101 @@ export default function App() {
   }, [sessionSummaries, showAllSessions]);
   const hasActiveSession = currentSessionId !== null;
   const showSessionTab = hasActiveSession || loading;
-  const headerStatus = [
-    `db: ${databaseReady ? "ok" : "init"}`,
-    `ws: ${wsStatus === "connected" ? "ok" : wsStatus}`,
-  ].join(" / ");
-  const refreshHistory = async () => {
-    const response = await recentHistory();
-    setHistory(response.transitions);
-  };
-
-  const refreshSessions = async () => {
-    const response = await recentSessions();
-    setSessionSummaries(response.sessions);
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadInitialData = async () => {
-      try {
-        const [favoriteResponse, historyResponse, sessionsResponse] = await Promise.all([
-          listFavorites(),
-          recentHistory(),
-          recentSessions(),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        setFavorites(favoriteResponse.items);
-        setHistory(historyResponse.transitions);
-        setSessionSummaries(sessionsResponse.sessions);
-        setError(null);
-      } catch (caught: unknown) {
-        if (cancelled) {
-          return;
-        }
-        setError(caught instanceof Error ? caught.message : "failed to load initial data");
-      }
-    };
-    if (databaseReady) {
-      void loadInitialData();
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [databaseReady]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const pollHealth = async () => {
-      try {
-        const response = await getHealth();
-        if (cancelled) {
-          return;
-        }
-        setDatabaseReady(response.database_ready);
-      } catch (caught: unknown) {
-        if (cancelled) {
-          return;
-        }
-        setDatabaseReady(false);
-        setError(caught instanceof Error ? caught.message : "health check failed");
-      }
-    };
-    void pollHealth();
-    const timer = window.setInterval(() => {
-      void pollHealth();
-    }, 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!databaseReady) {
-      return;
-    }
-    void refreshSessions().catch(() => {
-      // 起動直後に backend がまだ追いついていない場合は次回の polling に任せる
-    });
-    const timer = window.setInterval(() => {
-      void refreshSessions().catch(() => {
-        // 一時的な失敗は無視する
-      });
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [databaseReady]);
-
-  useEffect(() => {
-    if (currentPaper) {
-      return;
-    }
-    setPaperCosts(null);
-    setSessionCosts(null);
-    setQueuedPaperIds([]);
-    setNextPaperId(null);
-  }, [currentPaper?.id]);
-
-  const applyPaperReadyEvent = async (message: SessionEventMessage) => {
-    const paper = message.paper;
-    if (!paper) {
-      return;
-    }
-    const sessionId = message.session_id ?? sessionIdRef.current;
-    sessionIdRef.current = sessionId;
-    setCurrentSessionId(sessionId);
-    setCurrentPaper(paper);
-    setPaperTitleMap((prev) => ({ ...prev, [paper.id]: paper.title }));
-    setCurrentPaperSource(message.origin ?? null);
-    const nextSimpleSearchQuery = message.simple_search_query ?? message.followup_query ?? "";
-    const nextKeywordSearchQuery = message.keyword_search_query ?? message.search_keyword ?? message.followup_query ?? "";
-    const nextFulltextSearchQuery = message.fulltext_search_query ?? "";
-    setSimpleSearchQuery(nextSimpleSearchQuery);
-    setKeywordSearchQuery(nextKeywordSearchQuery);
-    setFulltextSearchQuery(nextFulltextSearchQuery);
-    setSearchModes(message.search_modes ?? []);
-    setTrailPaperIds(message.trail_paper_ids ?? []);
-    setQueuedPaperIds(message.queued_paper_ids ?? []);
-    setNextPaperId(message.next_paper_id ?? null);
-    setHits(message.search?.hits ?? []);
-    setRejectedCandidates(message.search?.rejected_candidates ?? []);
-    setFallbackUsed(Boolean(message.search?.fallback_used));
-    setExplanation(message.explanation ?? "");
-    const incomingMemo = message.memo ?? "";
-    paperMemoRemoteValueRef.current = incomingMemo;
-    paperMemoDirtyRef.current = false;
-    setPaperMemo(incomingMemo);
-    setPaperCosts(message.paper_costs ?? null);
-    setSessionCosts(message.session_costs ?? null);
-    setBackendNotices(message.notices ?? []);
-    setAudioUrls(message.audio_urls && message.audio_urls.length > 0 ? message.audio_urls : message.audio_url ? [message.audio_url] : []);
-    setAudioIndex(0);
-    setAudioDurationMs(null);
-    setIsPlaying(shouldAutoPlayRef.current);
-    setLoading(false);
-    setPendingAction("idle");
-    await Promise.all([refreshHistory(), refreshSessions()]);
-  };
-
+  const sessionPanelMode = getSessionPanelMode({ currentSessionId, currentPaper, loading });
+  const showSearchResultSections = shouldShowSearchResultSections(sessionPanelMode);
+  const paper = currentPaper as NonNullable<typeof currentPaper>;
+  const headerStatus = formatHeaderStatus({ databaseReady, wsStatus });
   const handleSessionMessage = async (message: SessionEventMessage) => {
-    if (typeof message.seq === "number" && message.seq <= lastEventSeqRef.current) {
+    const appSessionState = currentAppSessionStateRef.current;
+    const messageSeq = typeof message.seq === "number" ? message.seq : null;
+    const ignoreStaleSearch = shouldIgnoreStaleSearch({
+      currentSessionId: appSessionState.currentSessionId,
+      currentPaperId: appSessionState.currentPaper?.id ?? null,
+      messageSessionId: message.session_id ?? null,
+      messagePaperId: message.paper_id ?? null,
+    });
+    if (messageSeq !== null && message.type !== "paper_search_updated" && messageSeq <= lastEventSeqRef.current) {
       return;
     }
-    if (typeof message.seq === "number") {
-      lastEventSeqRef.current = message.seq;
-    }
-    if (message.type === "error") {
-      setError(message.message ?? "session error");
-      setLoading(false);
-      setPendingAction("idle");
+    if (ignoreStaleSearch) {
       return;
     }
-    if (message.type === "session_started") {
-      setCurrentSessionId(message.session_id ?? null);
-      sessionIdRef.current = message.session_id ?? null;
-    setPaperCosts(null);
-    setSessionCosts(null);
-    setBackendNotices([]);
-    setQueuedPaperIds([]);
-    setNextPaperId(null);
-    setActiveTab("session");
-    setPendingAction("idle");
-      await refreshHistory();
-      await refreshSessions();
+    const handlerResult = buildSessionMessageHandlerResult(appSessionState, message, appSessionState.currentPaper?.id ?? null);
+    if (handlerResult.errorMessage) {
+      applySessionOperationPatch(buildSessionOperationFailurePatch(handlerResult.errorMessage));
       return;
     }
-    if (message.type === "paper_ready") {
-      await applyPaperReadyEvent(message);
-      return;
-    }
-    if (message.type === "session_advanced") {
-      await refreshHistory();
-      await refreshSessions();
-      return;
-    }
-    if (message.type === "session_queued") {
-      setQueuedPaperIds(message.queued_paper_ids ?? []);
-      setNextPaperId(message.next_paper_id ?? null);
-      await refreshSessions();
-      return;
-    }
-    if (message.type === "session_costs_updated") {
-      if (message.session_costs) {
-        setSessionCosts(message.session_costs);
+    const statePatch = handlerResult.patch;
+    if (statePatch) {
+      if (statePatch.nextState) {
+        applyAppSessionState(statePatch.nextState);
+        applyAudioPlaybackState(statePatch.nextState);
+        sessionIdRef.current = statePatch.nextState.currentSessionId;
+        if (statePatch.shouldUpdateSearchPaperIdRef) {
+          searchPaperIdRef.current = statePatch.nextState.searchPaperId;
+        }
+        if (message.type === "paper_ready" || message.type === "session_stopped") {
+          setSelectedNextCandidatePaperId(null);
+        }
+        if (statePatch.shouldActivateSessionTab) {
+          setActiveTab("session");
+        }
+        if (statePatch.shouldActivateStartTab) {
+          setActiveTab("start");
+        }
       }
-      if (currentPaper?.id && message.paper_id === currentPaper.id && message.paper_costs) {
-        setPaperCosts(message.paper_costs);
+      if (statePatch.memo !== undefined) {
+        paperMemoRemoteValueRef.current = statePatch.memo ?? "";
+        paperMemoDirtyRef.current = false;
+        setPaperMemo(statePatch.memo ?? "");
+      }
+      if (statePatch.shouldUpdatePlayingState && statePatch.nextState) {
+        setIsPlaying(shouldAutoPlayRef.current);
+      }
+      if (statePatch.shouldSetPlayingFalse) {
+        setIsPlaying(false);
+      }
+      if (statePatch.shouldStopAudio) {
+        stopAudio();
+      }
+      if (statePatch.shouldClearOperationState) {
+        applySessionOperationPatch(buildSessionOperationIdlePatch());
+      }
+      if (statePatch.shouldRefreshHistory) {
+        await refreshHistory();
+      }
+      if (statePatch.shouldRefreshSessions) {
+        await refreshSessions();
+      }
+      if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
       }
       return;
     }
-    if (message.type === "session_regenerated") {
+    if (handlerResult.sessionCosts || handlerResult.paperCosts) {
+      if (handlerResult.sessionCosts) {
+        setSessionCosts(handlerResult.sessionCosts);
+      }
+      if (handlerResult.paperCosts) {
+        setPaperCosts(handlerResult.paperCosts);
+      }
+      if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
+      }
+      return;
+    }
+    if (handlerResult.refreshHistory) {
       await refreshHistory();
       await refreshSessions();
       return;
     }
-    if (message.type === "session_stopped") {
-      setLoading(false);
-      setPendingAction("idle");
-      stopAudio();
-      setCurrentSessionId(null);
-      setPaperCosts(null);
-      setSessionCosts(null);
-      setBackendNotices([]);
-      setQueuedPaperIds([]);
-      setNextPaperId(null);
-      sessionIdRef.current = null;
-      setActiveTab("start");
+    if (handlerResult.refreshSessions) {
       await refreshHistory();
       await refreshSessions();
+      return;
+    }
+    if (handlerResult.updateLastEventSeq && messageSeq !== null) {
+      lastEventSeqRef.current = Math.max(lastEventSeqRef.current, messageSeq);
     }
   };
 
@@ -484,98 +439,75 @@ export default function App() {
     setMessageHandler(handleSessionMessage);
   }, [handleSessionMessage, setMessageHandler]);
 
+  useEffect(() => {
+    playbackStartedPaperIdRef.current = null;
+  }, [currentSessionId, currentPaper?.id]);
+
   const handleStart = async () => {
-    if (!databaseReady) {
-      setError("データベース初期化中です。しばらくしてから再試行してください。");
-      return;
-    }
     const sourceUrl = form.sourceUrl.trim();
-    if (!sourceUrl) {
-      setError("開始URLを入力してください。");
+    const startError = getStartSessionError({ databaseReady, sourceUrl });
+    if (startError) {
+      setError(startError);
       return;
     }
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && sessionIdRef.current) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: "stop",
-          session_id: sessionIdRef.current,
-        }),
-      );
+      socketRef.current.send(JSON.stringify(buildStopSessionCommand(sessionIdRef.current)));
     }
     sessionIdRef.current = null;
     closeSocket(false);
     sessionIdRef.current = null;
     lastEventSeqRef.current = 0;
-    shouldAutoPlayRef.current = true;
-    setError(null);
-    setLoading(true);
-    setPendingAction("start");
-    setCurrentSessionId(null);
-    setCurrentPaper(null);
-    setCurrentPaperSource(null);
-    setSimpleSearchQuery("");
-    setKeywordSearchQuery("");
-    setFulltextSearchQuery("");
-    setSearchModes([]);
-    setTrailPaperIds([]);
-    setQueuedPaperIds([]);
-    setPaperTitleMap({});
-    setHits([]);
-    setRejectedCandidates([]);
-    setFallbackUsed(false);
-    setExplanation("");
-    resetAudio();
+    applySessionOperationPatch(buildSessionOperationStartPatch("start", { shouldAutoPlay: false }));
+    setSelectedNextCandidatePaperId(null);
+    const nextState = applySessionStartedToAppSessionState(currentAppSessionStateRef.current, null);
+    applyAppSessionState(nextState);
+    applyAudioPlaybackState(nextState);
+    sessionIdRef.current = null;
+    searchPaperIdRef.current = null;
+    resetAudio({ shouldAutoPlay: false });
+    setPaperMemo("");
     setActiveTab("session");
     openSessionSocket(
-      {
-        type: "start",
-        source_url: sourceUrl,
-        model_name: form.modelName,
-        include_old_vectors: form.includeOldVectors,
+      buildStartSessionCommand({
+        sourceUrl,
+        modelName: form.modelName,
+        includeOldVectors: form.includeOldVectors,
         limit: form.limit,
-        route1_weight: form.route1Weight,
-        route2_weight: form.route2Weight,
+        route1Weight: form.route1Weight,
+        route2Weight: form.route2Weight,
         seed: null,
-        search_modes: [
+        searchModes: [
           ...(form.useSimpleSearch ? ["simple"] : []),
           ...(form.useKeywordSearch ? ["keyword_list"] : []),
           ...(form.useFulltextSearch ? ["fulltext_query"] : []),
         ],
-      },
+      }),
       false,
     );
   };
 
   const handleResumeSession = async (sessionId: string) => {
-    if (!databaseReady) {
-      setError("データベース初期化中です。しばらくしてから再試行してください。");
-      return;
-    }
     const normalizedSessionId = sessionId.trim();
-    if (!normalizedSessionId) {
-      setError("session_id がありません。");
+    const resumeError = getResumeSessionError({ databaseReady, sessionId: normalizedSessionId });
+    if (resumeError) {
+      setError(resumeError);
       return;
     }
     setActiveTab("session");
-    setLoading(true);
-    setPendingAction("resume");
-    setBackendNotices([]);
+    applySessionOperationPatch(buildSessionOperationStartPatch("resume", { shouldAutoPlay: false }));
+    setSelectedNextCandidatePaperId(null);
     let snapshot: SessionSnapshot;
     try {
       snapshot = await getSession(normalizedSessionId);
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "session lookup failed");
-      setLoading(false);
-      setPendingAction("idle");
+      applySessionOperationPatch(buildSessionOperationFailurePatch(caught instanceof Error ? caught.message : "session lookup failed"));
       return;
     }
     const eventsResponse = await getSessionEvents(snapshot.session_id, 0).catch((caught: unknown) => {
-      setError(caught instanceof Error ? caught.message : "session replay failed");
+      applySessionOperationPatch(buildSessionOperationFailurePatch(caught instanceof Error ? caught.message : "session replay failed"));
       return null;
     });
     if (eventsResponse === null) {
-      setLoading(false);
-      setPendingAction("idle");
       return;
     }
     stopAudio();
@@ -583,53 +515,31 @@ export default function App() {
     sessionIdRef.current = snapshot.session_id;
     lastEventSeqRef.current = 0;
     shouldAutoPlayRef.current = false;
-    setError(null);
-    setPaperCosts(null);
-    setSessionCosts(null);
     const replayState = replaySessionEvents(snapshot, eventsResponse.events);
-    sessionIdRef.current = replayState.currentSessionId;
+    const nextState = applyReplayToState(replayState);
+    sessionIdRef.current = nextState.currentSessionId;
     lastEventSeqRef.current = replayState.lastEventSeq;
-    setCurrentSessionId(replayState.currentSessionId);
-    setCurrentPaper(replayState.currentPaper);
-    setCurrentPaperSource(replayState.currentPaperSource);
-    setSimpleSearchQuery(replayState.simpleSearchQuery);
-    setKeywordSearchQuery(replayState.keywordSearchQuery);
-    setFulltextSearchQuery(replayState.fulltextSearchQuery);
-    setSearchModes(replayState.searchModes);
-    setTrailPaperIds(replayState.trailPaperIds);
-    setQueuedPaperIds(replayState.queuedPaperIds);
-    setNextPaperId(replayState.nextPaperId);
-    setPaperTitleMap(replayState.paperTitleMap);
-    setHits(replayState.hits);
-    setRejectedCandidates(replayState.rejectedCandidates);
-    setFallbackUsed(replayState.fallbackUsed);
-    setExplanation(replayState.explanation);
+    applyAudioPlaybackState(nextState);
     paperMemoRemoteValueRef.current = replayState.memo;
     paperMemoDirtyRef.current = false;
     setPaperMemo(replayState.memo);
-    setPaperCosts(replayState.paperCosts);
-    setSessionCosts(replayState.sessionCosts);
-    setBackendNotices(replayState.notices);
-    setAudioUrls(replayState.audioUrls);
-    setAudioIndex(0);
-    setAudioDurationMs(replayState.audioDurationMs);
-    setIsPlaying(replayState.isPlaying);
+    setIsPlaying(false);
     setActiveTab(replayState.activeTab);
+    setSelectedNextCandidatePaperId(null);
     if (replayState.currentSessionId !== null) {
       openSessionSocket(undefined, false);
     }
-    setLoading(false);
+    applySessionOperationPatch(buildSessionOperationIdlePatch());
   };
 
   const handleToggleFavorite = async (paperId: string) => {
     try {
       const response = await toggleFavorite(paperId);
       if (response.favorited) {
-        const favoriteResponse = await listFavorites();
-        setFavorites(favoriteResponse.items);
+        await refreshFavorites();
         return;
       }
-      setFavorites((current) => current.filter((item) => item.paper_id !== paperId));
+      await refreshFavorites();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : "favorite update failed");
     }
@@ -640,12 +550,13 @@ export default function App() {
   };
 
   const handleResume = () => {
-    if (loading) {
-      setError("処理中です。しばらくしてから再開してください。");
-      return;
-    }
-    if (!currentSessionId || audioUrls.length === 0) {
-      setError("再開する再生がありません。");
+    const resumeAudioError = getResumeAudioError({
+      loading,
+      currentSessionId,
+      audioUrlsLength: audioUrls.length,
+    });
+    if (resumeAudioError) {
+      setError(resumeAudioError);
       return;
     }
     setError(null);
@@ -667,60 +578,45 @@ export default function App() {
     }
   };
 
-  useLayoutEffect(() => {
-    resumeAudioRef.current = handleResume;
-    pauseAudioRef.current = pauseAudio;
-    stopAudioRef.current = stopAudio;
-  }, [handleResume, pauseAudio, stopAudio]);
-
-  useLayoutEffect(() => {
-    audioUrlsLengthRef.current = audioUrls.length;
-  }, [audioUrls.length]);
-
   const handleNext = () => {
-    if (!databaseReady) {
-      setError("データベース初期化中です。しばらくしてから再試行してください。");
+    const socket = socketRef.current;
+    const nextError = getNextSessionError({
+      databaseReady,
+      hasOpenSession: Boolean(currentSessionId),
+    });
+    if (nextError) {
+      setError(nextError);
       return;
     }
-    if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) {
-      setError("次へ進める session がありません。");
+    const sessionId = currentSessionId;
+    if (!sessionId) {
       return;
     }
-    stopAudio();
-    shouldAutoPlayRef.current = true;
-    setBackendNotices([]);
-    setError(null);
-    setLoading(true);
-    setPendingAction("next");
-    socketRef.current.send(
-      JSON.stringify({
-        type: "next",
-        session_id: currentSessionId,
-      }),
-    );
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setError("セッション通信が接続されていません。");
+      return;
+    }
+    applySessionOperationPatch(buildSessionOperationStartPatch("next"));
+    socket?.send(JSON.stringify(buildNextSessionCommand(sessionId)));
   };
 
   const handleRegenerate = () => {
-    if (!databaseReady) {
-      setError("データベース初期化中です。しばらくしてから再試行してください。");
-      return;
-    }
-    if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) {
-      setError("再生成する session がありません。");
+    const socket = socketRef.current;
+    const regenerateError = getRegenerateSessionError({
+      databaseReady,
+      hasOpenSession: Boolean(currentSessionId && socket?.readyState === WebSocket.OPEN),
+    });
+    if (regenerateError) {
+      setError(regenerateError);
       return;
     }
     stopAudio();
-    shouldAutoPlayRef.current = true;
-    setBackendNotices([]);
-    setError(null);
-    setLoading(true);
-    setPendingAction("regenerate");
-    socketRef.current.send(
-      JSON.stringify({
-        type: "regenerate",
-        session_id: currentSessionId,
-      }),
-    );
+    applySessionOperationPatch(buildSessionOperationStartPatch("regenerate"));
+    const sessionId = currentSessionId;
+    if (!sessionId) {
+      return;
+    }
+    socket?.send(JSON.stringify(buildRegenerateSessionCommand(sessionId)));
   };
 
   const handleAudioEnded = () => {
@@ -735,51 +631,31 @@ export default function App() {
   };
 
   useLayoutEffect(() => {
-    if (!("mediaSession" in navigator)) {
-      return;
-    }
-    const mediaSession = navigator.mediaSession;
-    const handlePlayAction = () => {
+    resumeAudioRef.current = handleResume;
+    pauseAudioRef.current = pauseAudio;
+    stopAudioRef.current = stopAudio;
+  }, [handleResume, pauseAudio, stopAudio]);
+
+  useLayoutEffect(() => {
+    audioUrlsLengthRef.current = audioUrls.length;
+  }, [audioUrls.length]);
+
+  useMediaSession({
+    currentPaper,
+    audioUrlsLength: audioUrls.length,
+    isPlaying,
+    onPlay: () => {
       if (audioUrlsLengthRef.current > 0) {
         resumeAudioRef.current();
       }
-    };
-    const handlePauseAction = () => {
+    },
+    onPause: () => {
       pauseAudioRef.current();
-    };
-    const handleStopAction = () => {
+    },
+    onStop: () => {
       stopAudioRef.current();
-    };
-    mediaSession.setActionHandler("play", handlePlayAction);
-    mediaSession.setActionHandler("pause", handlePauseAction);
-    mediaSession.setActionHandler("stop", handleStopAction);
-    mediaSession.setActionHandler("previoustrack", null);
-    mediaSession.setActionHandler("nexttrack", null);
-    return () => {
-      mediaSession.setActionHandler("play", null);
-      mediaSession.setActionHandler("pause", null);
-      mediaSession.setActionHandler("stop", null);
-      mediaSession.setActionHandler("previoustrack", null);
-      mediaSession.setActionHandler("nexttrack", null);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!("mediaSession" in navigator)) {
-      return;
-    }
-    const mediaSession = navigator.mediaSession;
-    if (typeof MediaMetadata !== "undefined" && currentPaper !== null) {
-      mediaSession.metadata = new MediaMetadata({
-        title: currentPaper.title,
-        artist: currentPaper.authors ?? "quick-auditory-learning",
-        album: currentPaper.id,
-      });
-    } else {
-      mediaSession.metadata = null;
-    }
-    mediaSession.playbackState = audioUrls.length > 0 && isPlaying ? "playing" : "paused";
-  }, [audioUrls.length, currentPaper, isPlaying]);
+    },
+  });
 
   return (
     <main className="app-shell">
@@ -844,6 +720,15 @@ export default function App() {
               className="audio-player"
               onPlay={() => {
                 setIsPlaying(true);
+                if (
+                  currentSessionId &&
+                  currentPaper?.id &&
+                  playbackStartedPaperIdRef.current !== currentPaper.id &&
+                  socketRef.current?.readyState === WebSocket.OPEN
+                ) {
+                  playbackStartedPaperIdRef.current = currentPaper.id;
+                  socketRef.current.send(JSON.stringify(buildPlaybackStartedSessionCommand(currentSessionId, currentPaper.id)));
+                }
               }}
               onPause={(event) => {
                 if (event.currentTarget.ended) {
@@ -995,9 +880,17 @@ export default function App() {
                           <div className={`session-item${isCurrent ? " is-current" : ""}`}>
                             <div className="session-item-main">
                               <h3>{updatedAt}</h3>
-                              <p className="meta">session {session.session_id} / {session.status}</p>
-                              <p className="meta">
-                                合計処理時間 {formatDurationSeconds(session.total_wall_elapsed_ms)} / {formatUsd(session.total_generation_cost_usd)}
+                              {session.current_paper_title ? (
+                                <p className="session-paper-title" title={session.current_paper_title}>
+                                  {session.current_paper_title}
+                                </p>
+                              ) : null}
+                              <p className="meta session-summary-line">
+                                <span className="session-summary-session-id">session {session.session_id}</span>
+                                <span>全体処理時間 {formatDurationSeconds(session.total_generation_elapsed_ms)} / {formatUsd(session.total_generation_cost_usd)}</span>
+                                {formatSessionConnectionCount(session.session_websocket_connections) ? (
+                                  <span>{formatSessionConnectionCount(session.session_websocket_connections)}</span>
+                                ) : null}
                               </p>
                             </div>
                           </div>
@@ -1053,7 +946,7 @@ export default function App() {
           {activeTab === "session" && showSessionTab ? (
             <section className="tab-layout">
               <section className={`card player-card${loading && pendingAction === "regenerate" ? " is-regenerating" : ""}`}>
-                {currentPaper ? (
+                {sessionPanelMode === "paper" ? (
                   <div className="current-session-body">
                     <div className="current-session-actions" aria-label="現在のセッション操作">
                       <div className="current-session-action-group" role="group" aria-label="再生操作">
@@ -1079,11 +972,11 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          className="current-session-action-button"
+                          className={`current-session-action-button${shouldHighlightNextCandidateAction(displayNextCandidatePaperId) ? " is-active" : ""}`}
                           onClick={handleNext}
-                          disabled={!currentSessionId || wsStatus !== "connected" || loading}
+                          disabled={!canSendSessionAction({ currentSessionId, wsConnected: wsStatus === "connected" })}
                           aria-label="次へ進む"
-                          title="次へ進む"
+                          title={shouldHighlightNextCandidateAction(displayNextCandidatePaperId) ? "次に再生する候補が選択されています" : "次へ進む"}
                         >
                           <SessionActionIcon kind="next" />
                         </button>
@@ -1128,10 +1021,10 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        className={`current-session-action-button favorite-action${favoriteSet.has(currentPaper.id) ? " is-active" : ""}`}
-                        onClick={() => void handleToggleFavorite(currentPaper.id)}
-                        aria-label={favoriteSet.has(currentPaper.id) ? "お気に入り解除" : "お気に入り"}
-                        title={favoriteSet.has(currentPaper.id) ? "お気に入り解除" : "お気に入り"}
+                        className={`current-session-action-button favorite-action${favoriteSet.has(paper.id) ? " is-active" : ""}`}
+                        onClick={() => void handleToggleFavorite(paper.id)}
+                        aria-label={favoriteSet.has(paper.id) ? "お気に入り解除" : "お気に入り"}
+                        title={favoriteSet.has(paper.id) ? "お気に入り解除" : "お気に入り"}
                       >
                         <SessionActionIcon kind="favorite" />
                       </button>
@@ -1147,8 +1040,8 @@ export default function App() {
                           </div>
                         </div>
                       ) : null}
-                      <p className="paper-id">{currentPaper.id}</p>
-                      <h3>{currentPaper.title}</h3>
+                      <p className="paper-id">{paper.id}</p>
+                      <h3>{paper.title}</h3>
                       {explanation ? <p className="explanation">{explanation}</p> : null}
                       <section className="memo-section" aria-label="メモ">
                         <div className="memo-head">
@@ -1280,7 +1173,7 @@ export default function App() {
                                     </tbody>
                                     <tfoot>
                                       <tr>
-                                        <td>合計</td>
+                                        <td>全体</td>
                                         <td>{formatOptionalCostValue(paperCosts.total_elapsed_ms, formatDurationSeconds)}</td>
                                         <td>{formatOptionalCostValue(paperCosts.total_elapsed_ms_without_prefetch, formatDurationSeconds)}</td>
                                         <td>{formatOptionalCostValue(paperCosts.total_cost_usd, formatUsd)}</td>
@@ -1322,7 +1215,7 @@ export default function App() {
                                     </tbody>
                                     <tfoot>
                                       <tr>
-                                        <td>合計</td>
+                                        <td>全体</td>
                                         <td>{formatOptionalCostValue(sessionCosts.total_elapsed_ms, formatDurationSeconds)}</td>
                                         <td>{formatOptionalCostValue(sessionCosts.total_elapsed_ms_without_prefetch, formatDurationSeconds)}</td>
                                         <td>{formatOptionalCostValue(sessionCosts.total_cost_usd, formatUsd)}</td>
@@ -1377,14 +1270,14 @@ export default function App() {
 
                           <section className="session-detail-section">
                             <h3>原文サマリー</h3>
-                            <p>{currentPaper.abstract}</p>
+                            <p>{paper.abstract}</p>
                           </section>
 
                         </div>
                       </details>
                     </article>
                   </div>
-                ) : loading ? (
+                ) : sessionPanelMode === "loading" ? (
                   <div className="regenerate-empty-state" role="status" aria-live="polite">
                     <span className="regenerate-spinner" aria-hidden="true" />
                     <div>
@@ -1401,109 +1294,108 @@ export default function App() {
                 )}
               </section>
 
-              <section className="card">
-                <h2>検索結果</h2>
-                {hits.length === 0 ? (
-                  <p className="muted">まだ結果はありません。</p>
-                ) : (
-                  <SearchResultList
-                    items={hits.map((hit) => {
-                      const state = buildSearchResultState({
-                        currentPaperId: currentPaper?.id ?? null,
-                        paperId: hit.paper.id,
-                        selectedNextPaperId,
-                        trailPaperIds: trailPaperSet,
-                        favoritePaperIds: favoriteSet,
-                        canInteract: Boolean(currentSessionId && socketRef.current?.readyState === WebSocket.OPEN && !loading),
-                      });
-                      const isExplicitQueued = queuedPaperSet.has(hit.paper.id);
-                      const sourceModes = uniqueSearchModes(hit.source_modes).map((mode) => formatSearchMode(mode));
-                      return {
-                        id: hit.paper.id,
-                        paperIdLabel: hit.paper.id,
-                        title: hit.paper.title,
-                        meta: (
-                          <>
-                            <span className="paper-categories">{formatCategories(hit.paper.categories)}</span>
-                            score {hit.score.toFixed(4)} / route1 {hit.route1_score.toFixed(4)} / route2 {hit.route2_score.toFixed(4)}
-                          </>
-                        ),
-                        sourceModes,
-                        isSelected: state.isSelected,
-                        isQueued: state.isQueued,
-                        isReplayed: state.isReplayed,
-                        isFavorite: state.isFavorite,
-                        canInteract: state.canInteract,
-                        onToggleQueue: () => {
-                          if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) return;
-                          setError(null);
-                          socketRef.current.send(
-                            JSON.stringify({
-                              type: isExplicitQueued ? "dequeue" : "queue",
-                              session_id: currentSessionId,
-                              paper_id: hit.paper.id,
+              {showSearchResultSections ? (
+                <>
+                  <section className="card">
+                    <h2>検索結果</h2>
+                    {!searchResultsVisible || hits.length === 0 ? (
+                      <p className="muted">まだ結果はありません。</p>
+                    ) : (
+                      <SearchResultList
+                        items={hits.map((hit) => {
+                          const state = buildSearchResultState({
+                            currentPaperId: currentPaper?.id ?? null,
+                            paperId: hit.paper.id,
+                            nextCandidatePaperId: displayNextCandidatePaperId,
+                            trailPaperIds: trailPaperSet,
+                            favoritePaperIds: favoriteSet,
+                              canInteract: canSendSessionAction({
+                              currentSessionId,
+                              wsConnected: socketRef.current?.readyState === WebSocket.OPEN,
                             }),
-                          );
-                        },
-                        onToggleFavorite: () => void handleToggleFavorite(hit.paper.id),
-                      };
-                    })}
-                  />
-                )}
-              </section>
+                          });
+                          const sourceModes = uniqueSearchModes(hit.source_modes).map((mode) => formatSearchMode(mode));
+                          return {
+                            id: hit.paper.id,
+                            paperIdLabel: hit.paper.id,
+                            title: hit.paper.title,
+                            meta: (
+                              <>
+                                <span className="paper-categories">{formatCategories(hit.paper.categories)}</span>
+                                score {hit.score.toFixed(4)} / route1 {hit.route1_score.toFixed(4)} / route2 {hit.route2_score.toFixed(4)}
+                              </>
+                            ),
+                            sourceModes,
+                            isSelected: state.isSelected,
+                            isNextCandidate: state.isNextCandidate,
+                            isReplayed: state.isReplayed,
+                            isFavorite: state.isFavorite,
+                            canInteract: state.canInteract,
+                            onSelectNextCandidate: () => {
+                              if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) return;
+                              setError(null);
+                              setSelectedNextCandidatePaperId(hit.paper.id);
+                              socketRef.current.send(JSON.stringify(buildSetNextCandidateCommand(currentSessionId, hit.paper.id)));
+                            },
+                            onToggleFavorite: () => void handleToggleFavorite(hit.paper.id),
+                          };
+                        })}
+                      />
+                    )}
+                  </section>
 
-              <div className="layout-grid">
-                <section className="card full-width-card">
-                  <h2>前の論文から検索した他の論文</h2>
-                  {rejectedCandidates.length === 0 ? (
-                    <p className="muted">まだありません。</p>
-                ) : (
-                  <SearchResultList
-                    items={rejectedCandidates.map((candidate) => {
-                      const state = buildSearchResultState({
-                        currentPaperId: currentPaper?.id ?? null,
-                        paperId: candidate.paper_id,
-                        selectedNextPaperId,
-                        trailPaperIds: trailPaperSet,
-                        favoritePaperIds: favoriteSet,
-                        canInteract: Boolean(currentSessionId && socketRef.current?.readyState === WebSocket.OPEN && !loading),
-                      });
-                      const isExplicitQueued = queuedPaperSet.has(candidate.paper_id);
-                      const sourceModes = uniqueSearchModes(candidate.source_modes).map((mode) => formatSearchMode(mode));
-                      return {
-                        id: candidate.paper_id,
-                        paperIdLabel: candidate.paper_id,
-                        title: candidate.title,
-                        meta: (
-                          <>
-                            score {candidate.score.toFixed(4)} / {candidate.reason}
-                          </>
-                        ),
-                        sourceModes,
-                        isSelected: state.isSelected,
-                        isQueued: state.isQueued,
-                        isReplayed: state.isReplayed,
-                        isFavorite: state.isFavorite,
-                        canInteract: state.canInteract,
-                        onToggleQueue: () => {
-                          if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) return;
-                          setError(null);
-                          socketRef.current.send(
-                            JSON.stringify({
-                              type: isExplicitQueued ? "dequeue" : "queue",
-                              session_id: currentSessionId,
-                              paper_id: candidate.paper_id,
-                            }),
-                          );
-                        },
-                        onToggleFavorite: () => void handleToggleFavorite(candidate.paper_id),
-                      };
-                    })}
-                  />
-                )}
-                </section>
-
-              </div>
+                  <div className="layout-grid">
+                    <section className="card full-width-card">
+                      <h2>前の論文から検索した他の論文</h2>
+                      {previousSearchPaperId === null ? (
+                        <p className="muted">起点の論文のためありません。</p>
+                      ) : previousRejectedCandidates.length === 0 ? (
+                        <p className="muted">前の論文から検索した他の論文はまだありません。</p>
+                      ) : (
+                        <SearchResultList
+                          items={previousRejectedCandidates.map((candidate) => {
+                            const state = buildSearchResultState({
+                              currentPaperId: currentPaper?.id ?? null,
+                              paperId: candidate.paper_id,
+                              nextCandidatePaperId: displayNextCandidatePaperId,
+                              trailPaperIds: trailPaperSet,
+                              favoritePaperIds: favoriteSet,
+                              canInteract: canSendSessionAction({
+                                currentSessionId,
+                                wsConnected: socketRef.current?.readyState === WebSocket.OPEN,
+                              }),
+                            });
+                            const sourceModes = uniqueSearchModes(candidate.source_modes).map((mode) => formatSearchMode(mode));
+                            return {
+                              id: candidate.paper_id,
+                              paperIdLabel: candidate.paper_id,
+                              title: candidate.title,
+                              meta: (
+                                <>
+                                  score {candidate.score.toFixed(4)} / {candidate.reason}
+                                </>
+                              ),
+                              sourceModes,
+                              isSelected: state.isSelected,
+                              isNextCandidate: state.isNextCandidate,
+                              isReplayed: state.isReplayed,
+                              isFavorite: state.isFavorite,
+                              canInteract: state.canInteract,
+                              onSelectNextCandidate: () => {
+                                if (!currentSessionId || socketRef.current?.readyState !== WebSocket.OPEN) return;
+                                setError(null);
+                                setSelectedNextCandidatePaperId(candidate.paper_id);
+                                socketRef.current.send(JSON.stringify(buildSetNextCandidateCommand(currentSessionId, candidate.paper_id)));
+                              },
+                              onToggleFavorite: () => void handleToggleFavorite(candidate.paper_id),
+                            };
+                          })}
+                        />
+                      )}
+                    </section>
+                  </div>
+                </>
+              ) : null}
             </section>
           ) : null}
         </div>

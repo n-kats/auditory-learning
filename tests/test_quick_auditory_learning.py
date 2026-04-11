@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +46,86 @@ def load_backend_main(monkeypatch):
 
 def test_normalize_identifier() -> None:
     assert normalize_identifier("text-embedding-3-small") == "text_embedding_3_small"
+
+
+def test_health_reports_session_websocket_connections(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+    monkeypatch.setattr(
+        main,
+        "session_room_queues",
+        {
+            "session-a": {(object(), object())},
+            "session-b": {(object(), object()), (object(), object())},
+        },
+    )
+
+    health = main.health()
+
+    assert health["database_ready"] is False
+    assert health["session_websocket_connections"] == 3
+
+
+def test_sessions_recent_reports_session_specific_websocket_connections(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    @contextmanager
+    def fake_connection():
+        yield object()
+
+    monkeypatch.setattr(main, "connection", fake_connection)
+    monkeypatch.setattr(
+        main,
+        "list_playback_sessions",
+        lambda conn, limit=20: [
+            SimpleNamespace(
+                session_id="session-a",
+                status="active",
+                root_source_url="https://example.com/a",
+                root_paper_id="paper-a",
+                root_paper_title="Title A",
+                current_paper_id="paper-a",
+                current_paper_title="Title A",
+                next_event_seq=1,
+                config={},
+                started_at=datetime(2026, 4, 11, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 11, tzinfo=timezone.utc),
+                total_generation_elapsed_ms=10,
+                total_wall_elapsed_ms=10,
+                total_generation_cost_usd=0.1,
+            ),
+            SimpleNamespace(
+                session_id="session-b",
+                status="active",
+                root_source_url="https://example.com/b",
+                root_paper_id="paper-b",
+                root_paper_title="Title B",
+                current_paper_id="paper-b",
+                current_paper_title="Title B",
+                next_event_seq=1,
+                config={},
+                started_at=datetime(2026, 4, 11, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 4, 11, tzinfo=timezone.utc),
+                total_generation_elapsed_ms=10,
+                total_wall_elapsed_ms=10,
+                total_generation_cost_usd=0.1,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        main,
+        "session_room_queues",
+        {
+            "session-a": {(object(), object())},
+            "session-b": {(object(), object()), (object(), object())},
+        },
+    )
+
+    response = main.sessions_recent()
+
+    assert response.sessions[0].session_id == "session-a"
+    assert response.sessions[0].session_websocket_connections == 1
+    assert response.sessions[1].session_id == "session-b"
+    assert response.sessions[1].session_websocket_connections == 2
 
 
 def test_model_table_name_changes_with_version() -> None:
@@ -216,13 +297,13 @@ def test_sort_search_modes_orders_by_priority_and_deduplicates() -> None:
 def test_latest_event_payload_returns_most_recent_matching_payload() -> None:
     events = [
         SimpleNamespace(event_type="paper_ready", payload={"paper": {"id": "p-1"}}),
-        SimpleNamespace(event_type="session_queued", payload={"next_paper_id": "p-2"}),
+        SimpleNamespace(event_type="session_next_candidate_updated", payload={"next_paper_id": "p-2"}),
         SimpleNamespace(event_type="session_next_requested", payload={"to_paper_id": "p-3"}),
         SimpleNamespace(event_type="paper_ready", payload={"paper": {"id": "p-3"}}),
     ]
 
     assert latest_event_payload(events, "paper_ready") == {"paper": {"id": "p-3"}}
-    assert latest_event_payload(events, "session_queued") == {"next_paper_id": "p-2"}
+    assert latest_event_payload(events, "session_next_candidate_updated") == {"next_paper_id": "p-2"}
     assert latest_event_payload(events, "session_next_requested") == {"to_paper_id": "p-3"}
     assert latest_event_payload(events, "missing") is None
 
@@ -257,6 +338,218 @@ def test_session_requested_at_by_paper_id_uses_next_requested_event(monkeypatch)
 
     assert requested_at["p-root"] == datetime(2026, 4, 10, 0, 0, 0, tzinfo=timezone.utc)
     assert requested_at["p-next"] == datetime(2026, 4, 10, 0, 0, 1, tzinfo=timezone.utc)
+
+
+def test_session_room_broadcast_buffers_when_unbound(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    with main.session_room_lock:
+        main.session_room_queues.clear()
+    with main.session_room_pending_lock:
+        main.session_room_pending_events.clear()
+
+    payload = {"type": "paper_search_updated", "session_id": "s-1", "seq": 3}
+    main._session_room_broadcast("s-1", payload)
+
+    assert main._session_room_drain_pending("s-1") == [payload]
+
+
+def test_session_room_pending_events_are_scoped_by_session_id(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    with main.session_room_lock:
+        main.session_room_queues.clear()
+    with main.session_room_pending_lock:
+        main.session_room_pending_events.clear()
+
+    payload_1 = {"type": "paper_search_updated", "session_id": "s-1", "seq": 3, "paper_id": "p-1"}
+    payload_2 = {"type": "paper_search_updated", "session_id": "s-2", "seq": 5, "paper_id": "p-2"}
+
+    main._session_room_broadcast("s-1", payload_1)
+    main._session_room_broadcast("s-2", payload_2)
+
+    assert main._session_room_drain_pending("s-1") == [payload_1]
+    assert main._session_room_drain_pending("s-2") == [payload_2]
+    assert main._session_room_drain_pending("s-1") == []
+    assert main._session_room_drain_pending("s-2") == []
+
+
+def test_session_stream_sends_start_events_before_pending_search_updates(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    with main.session_room_lock:
+        main.session_room_queues.clear()
+    with main.session_room_pending_lock:
+        main.session_room_pending_events.clear()
+
+    def fake_start_session(message):
+        main._session_room_broadcast(
+            "session-1",
+            {
+                "type": "paper_search_updated",
+                "session_id": "session-1",
+                "seq": 3,
+                "paper_id": "paper-1",
+                "search": {"hits": [], "rejected_candidates": [], "fallback_used": False},
+            },
+        )
+        return [
+            {"type": "session_started", "session_id": "session-1", "seq": 1},
+            {
+                "type": "paper_ready",
+                "session_id": "session-1",
+                "seq": 2,
+                "paper": {"id": "paper-1", "title": "Paper 1", "abstract": "", "categories": []},
+                "search_deferred": True,
+                "search": {"hits": [], "rejected_candidates": [], "fallback_used": True},
+            },
+        ]
+
+    monkeypatch.setattr(main, "_start_session", fake_start_session)
+
+    client = TestClient(main.app)
+    with client.websocket_connect("/sessions/ws") as websocket:
+        websocket.send_json({"type": "start"})
+        messages = [websocket.receive_json(), websocket.receive_json(), websocket.receive_json()]
+
+    assert [message["type"] for message in messages] == ["session_started", "paper_ready", "paper_search_updated"]
+
+
+def test_session_stream_emits_start_flow_events(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    @contextmanager
+    def fake_connection():
+        yield object()
+
+    paper = SimpleNamespace(
+        id="paper-1",
+        title="Paper 1",
+        abstract="Abstract",
+        categories=["cs.AI"],
+        model_dump=lambda mode="json": {"id": "paper-1", "title": "Paper 1", "abstract": "Abstract", "categories": ["cs.AI"]},
+    )
+
+    monkeypatch.setattr(main, "connection", fake_connection)
+    monkeypatch.setattr(main, "require_openai_client", lambda operation: object())
+    monkeypatch.setattr(main, "resolve_paper_from_source", lambda conn, source_url: (paper, "arxiv"))
+    monkeypatch.setattr(main, "create_playback_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "append_session_trail_item", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "record_transition", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "list_session_trail_paper_ids", lambda *args, **kwargs: ["paper-root"])
+    monkeypatch.setattr(
+        main,
+        "_paper_ready_payload",
+        lambda *args, **kwargs: {
+            "session_id": "session-1",
+            "origin": "arxiv",
+            "from_paper_id": None,
+            "trail_paper_ids": ["paper-root"],
+            "next_paper_id": None,
+            "paper": {"id": "paper-1", "title": "Paper 1", "abstract": "Abstract", "categories": ["cs.AI"]},
+            "search": {"hits": [], "rejected_candidates": [], "fallback_used": True},
+            "search_deferred": True,
+            "simple_search_query": "query",
+            "followup_query": "query",
+            "keyword_search_query": "query",
+            "search_keyword": "query",
+            "fulltext_search_query": "query",
+            "search_modes": ["simple"],
+            "explanation": "exp",
+            "audio_url": "/audio/paper-1",
+            "audio_urls": ["/audio/paper-1/chunks/0000"],
+            "audio_duration_ms": 1234,
+            "notices": [],
+            "paper_costs": None,
+            "session_costs": None,
+            "memo": "",
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "_append_session_event_message",
+        lambda conn, session_id, event_type, payload: {"session_id": session_id, "seq": 1 if event_type == "session_started" else 2, "type": event_type, **payload},
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/sessions/ws") as websocket:
+            websocket.send_json(
+                {
+                    "type": "start",
+                    "source_url": "https://arxiv.org/abs/1234.5678",
+                    "model_name": "text-embedding-3-large",
+                    "include_old_vectors": False,
+                    "limit": 10,
+                    "route1_weight": 0.55,
+                    "route2_weight": 0.45,
+                    "seed": None,
+                    "search_modes": ["simple"],
+                }
+            )
+            messages = [websocket.receive_json(), websocket.receive_json()]
+
+    assert [message["type"] for message in messages] == ["session_started", "paper_ready"]
+    assert messages[1]["paper"]["id"] == "paper-1"
+    assert messages[1]["explanation"] == "exp"
+    assert messages[1]["audio_url"] == "/audio/paper-1"
+    assert messages[1]["search_deferred"] is True
+
+
+def test_session_stream_emits_playback_started_events(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    monkeypatch.setattr(
+        main,
+        "_record_playback_started",
+        lambda message: [
+            {
+                "type": "session_playback_started",
+                "session_id": message.session_id,
+                "seq": 7,
+                "paper_id": message.paper_id,
+            }
+        ],
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/sessions/ws") as websocket:
+            websocket.send_json({"type": "playback_started", "session_id": "session-1", "paper_id": "paper-1"})
+            message = websocket.receive_json()
+
+    assert message["type"] == "session_playback_started"
+    assert message["paper_id"] == "paper-1"
+
+
+def test_session_stream_emits_next_candidate_updated_events(monkeypatch) -> None:
+    main = load_backend_main(monkeypatch)
+
+    monkeypatch.setattr(
+        main,
+        "_set_next_candidate_paper",
+        lambda message: [
+            {
+                "type": "session_next_candidate_updated",
+                "session_id": message.session_id,
+                "seq": 8,
+                "paper_id": message.paper_id,
+                "next_paper_id": "paper-2",
+            }
+        ],
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(main.app) as client:
+        with client.websocket_connect("/sessions/ws") as websocket:
+            websocket.send_json({"type": "set_next_candidate", "session_id": "session-1", "paper_id": "paper-2"})
+            message = websocket.receive_json()
+
+    assert message["type"] == "session_next_candidate_updated"
+    assert message["next_paper_id"] == "paper-2"
 
 
 def test_restore_next_paper_id_uses_last_paper_ready_event(monkeypatch) -> None:
@@ -318,8 +611,8 @@ def test_advance_session_uses_existing_next_paper_id(monkeypatch, tmp_path) -> N
     def fake_get_paper(conn, paper_id):
         return SimpleNamespace(id=paper_id, title=f"Title {paper_id}", abstract=f"Abstract {paper_id}")
 
-    def fake_pop_session_queue_item(conn, session_id):
-        calls["pop_session_queue_item"] = (session_id,)
+    def fake_pop_session_next_candidate(conn, session_id):
+        calls["pop_session_next_candidate"] = (session_id,)
         return None
 
     def fake_set_session_next_paper_id(conn, session_id, paper_id):
@@ -348,7 +641,7 @@ def test_advance_session_uses_existing_next_paper_id(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(main, "require_openai_client", lambda operation: object())
     monkeypatch.setattr(main, "get_playback_session", fake_get_playback_session)
     monkeypatch.setattr(main, "get_paper", fake_get_paper)
-    monkeypatch.setattr(main, "pop_session_queue_item", fake_pop_session_queue_item)
+    monkeypatch.setattr(main, "pop_session_next_candidate", fake_pop_session_next_candidate)
     monkeypatch.setattr(main, "_set_session_next_paper_id", fake_set_session_next_paper_id)
     monkeypatch.setattr(main, "append_session_trail_item", fake_append_session_trail_item)
     monkeypatch.setattr(main, "update_playback_session", fake_update_playback_session)
@@ -359,7 +652,7 @@ def test_advance_session_uses_existing_next_paper_id(monkeypatch, tmp_path) -> N
 
     events = main._advance_session(SimpleNamespace(session_id="session-1"))
 
-    assert calls["pop_session_queue_item"] == ("session-1",)
+    assert calls["pop_session_next_candidate"] == ("session-1",)
     assert calls["update_playback_session"] == ("session-1", {"current_paper_id": "p-next"})
     assert calls["record_transition"] == ("p-current", "p-next")
     assert calls["paper_ready_payload"] == ("session-1", "p-next", "search", "p-current", ["p-root", "p-current"])
@@ -487,6 +780,15 @@ def test_generation_cost_wall_elapsed_ms_from_rows_merges_overlaps() -> None:
     assert generation_cost_wall_elapsed_ms_from_rows(rows) == 190
 
 
+def test_generation_cost_wall_elapsed_ms_from_rows_skips_idle_gaps() -> None:
+    rows = [
+        {"created_at": datetime(2026, 4, 10, 0, 0, 0, tzinfo=timezone.utc), "elapsed_ms": 100},
+        {"created_at": datetime(2026, 4, 10, 0, 0, 0, 300000, tzinfo=timezone.utc), "elapsed_ms": 100},
+    ]
+
+    assert generation_cost_wall_elapsed_ms_from_rows(rows) == 200
+
+
 def test_generation_cost_total_cost_usd_from_rows_sums_all_rows() -> None:
     rows = [
         {"estimated_cost_usd": 0.1},
@@ -533,7 +835,7 @@ def test_generation_cost_items_from_rows_marks_missing_rows_pending() -> None:
 
     assert by_kind["search"].status == "calculated"
     assert by_kind["search"].elapsed_ms == 20
-    assert by_kind["search"].elapsed_ms_without_prefetch == 10
+    assert by_kind["search"].elapsed_ms_without_prefetch == 20
     assert by_kind["search"].estimated_cost_usd == 0.15
     assert by_kind["embedding"].status == "pending"
     assert by_kind["embedding"].elapsed_ms is None
@@ -567,7 +869,7 @@ def test_generation_cost_items_from_rows_excludes_prefetch_from_subtotal() -> No
     )
     explanation = {item.kind: item for item in items}["explanation"]
     assert explanation.elapsed_ms == 125
-    assert explanation.elapsed_ms_without_prefetch == 105
+    assert explanation.elapsed_ms_without_prefetch == 135
 
 
 def test_generation_cost_items_from_rows_zeroes_finished_before_request() -> None:
@@ -696,7 +998,7 @@ def test_generation_cost_wall_elapsed_ms_from_rows_counts_from_request_until_fin
         requested_at_by_paper_id={"p-1": datetime(2026, 4, 10, 0, 0, 0, tzinfo=timezone.utc)},
     )
 
-    assert elapsed_ms == 200
+    assert elapsed_ms == 150
 
 
 def test_generation_cost_rows_can_exclude_prefetch(monkeypatch) -> None:
@@ -896,7 +1198,7 @@ def test_session_cost_payload_keeps_current_totals_even_when_active(monkeypatch,
     assert payload.total_cost_usd == 1.23
     assert payload.total_elapsed_ms_without_prefetch == 111
     assert payload.total_cost_usd_without_prefetch == 1.11
-    assert payload.items[0].elapsed_ms_without_prefetch == 100
+    assert payload.items[0].elapsed_ms_without_prefetch == 130
 
 
 def test_generate_explanation_records_zero_audio_cost_on_audio_cache_hit(monkeypatch, tmp_path: Path) -> None:
@@ -983,6 +1285,403 @@ def test_schedule_next_paper_prefetch_records_generation_cost(monkeypatch) -> No
     assert calls["connection_entered"] is True
     assert calls["connection_exited"] is True
     assert len(calls["cost_calls"]) == 2
+
+
+def test_schedule_next_paper_prefetch_discards_stale_target_before_cache_write(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeExecutor:
+        def submit(self, fn):
+            calls["executor_submit"] = True
+            fn()
+
+    monkeypatch.setattr(main, "connection", lambda: FakeConnection())
+    monkeypatch.setattr(main, "PREFETCH_EXECUTOR", FakeExecutor())
+    monkeypatch.setattr(main, "_prefetch_target_is_current", lambda session_id, paper_id: True)
+    monkeypatch.setattr(main, "_record_generation_cost_and_notify", lambda *args, **kwargs: None)
+
+    def fake_paper_search_payload(conn, client, session_id, paper, *, trail_paper_ids, config, cost_recorder=None):
+        main.SEARCH_PREFETCH_SESSION_TARGETS[session_id] = "p-new"
+        return {
+            "search": {"hits": [], "rejected_candidates": [], "fallback_used": True},
+            "simple_search_query": "q",
+            "followup_query": "q",
+            "keyword_search_query": "q",
+            "search_keyword": "q",
+            "fulltext_search_query": "q",
+            "search_modes": ["simple"],
+            "next_paper_id": "p-next",
+            "notices": [],
+        }
+
+    monkeypatch.setattr(main, "_paper_search_payload", fake_paper_search_payload)
+    monkeypatch.setattr(main, "_set_session_next_paper_id", lambda *args, **kwargs: calls.setdefault("next", []).append((args, kwargs)))
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: SimpleNamespace(session_id="session-1", current_paper_id="p-current", next_paper_id="p-old", status="active", config={}))
+    monkeypatch.setattr(main, "get_paper", lambda *args, **kwargs: SimpleNamespace(id="p-old"))
+    monkeypatch.setattr(main, "list_session_trail_paper_ids", lambda *args, **kwargs: ["p-current"])
+
+    with main.SEARCH_PREFETCH_LOCK:
+      main.SEARCH_PREFETCH_SESSION_TARGETS.clear()
+      main.SEARCH_PREFETCH_CACHE.clear()
+
+    main._schedule_next_paper_search_prefetch("session-1", "p-old")
+
+    with main.SEARCH_PREFETCH_LOCK:
+        assert ("session-1", "p-old") not in main.SEARCH_PREFETCH_CACHE
+    assert "next" not in calls
+
+
+def test_set_session_next_paper_id_schedules_only_explanation_prefetch_until_playback_started(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    monkeypatch.setattr(main, "update_playback_session", lambda *args, **kwargs: calls.setdefault("update", []).append((args, kwargs)))
+    monkeypatch.setattr(main, "_schedule_next_paper_prefetch", lambda session_id, paper_id: calls.setdefault("explanation", []).append((session_id, paper_id)))
+
+    conn = object()
+    main._set_session_next_paper_id(conn, "session-1", "p-next")
+
+    assert len(calls["update"]) == 1
+    assert calls["update"][0][1] == {"next_paper_id": "p-next"}
+    assert calls["explanation"] == [("session-1", "p-next")]
+    assert "search" not in calls
+
+
+def test_maybe_schedule_next_paper_search_prefetch_waits_for_playback_started(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    session = SimpleNamespace(
+        session_id="session-1",
+        current_paper_id="p-current",
+        next_paper_id="p-next",
+        status="active",
+    )
+
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: session)
+    monkeypatch.setattr(main, "list_session_events", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main, "_schedule_next_paper_search_prefetch", lambda session_id, paper_id: calls.setdefault("search", []).append((session_id, paper_id)))
+
+    main._maybe_schedule_next_paper_search_prefetch(object(), "session-1")
+
+    assert "search" not in calls
+
+
+def test_maybe_schedule_next_paper_search_prefetch_runs_after_playback_started(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    session = SimpleNamespace(
+        session_id="session-1",
+        current_paper_id="p-current",
+        next_paper_id="p-next",
+        status="active",
+    )
+
+    def fake_list_session_events(conn, session_id):
+        return [
+            SimpleNamespace(event_type="session_started", payload={"session_id": session_id}),
+            SimpleNamespace(event_type="session_playback_started", payload={"session_id": session_id, "paper_id": "p-current"}),
+        ]
+
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: session)
+    monkeypatch.setattr(main, "list_session_events", fake_list_session_events)
+    monkeypatch.setattr(main, "_schedule_next_paper_search_prefetch", lambda session_id, paper_id: calls.setdefault("search", []).append((session_id, paper_id)))
+
+    main._maybe_schedule_next_paper_search_prefetch(object(), "session-1")
+
+    assert calls["search"] == [("session-1", "p-next")]
+
+
+def test_record_playback_started_appends_event_and_triggers_search_prefetch(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    session = SimpleNamespace(
+        session_id="session-1",
+        current_paper_id="p-current",
+        next_paper_id="p-next",
+        status="active",
+    )
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_conn = FakeConnection()
+
+    monkeypatch.setattr(main, "connection", lambda: fake_conn)
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: session)
+    monkeypatch.setattr(main, "list_session_events", lambda *args, **kwargs: [SimpleNamespace(event_type="session_started", payload={"session_id": "session-1"})])
+    monkeypatch.setattr(
+        main,
+        "_append_session_event_message",
+        lambda conn, session_id, event_type, payload: calls.setdefault("events", []).append((session_id, event_type, payload)) or {"session_id": session_id, "seq": 1, "type": event_type, **payload},
+    )
+    monkeypatch.setattr(main, "_maybe_schedule_next_paper_search_prefetch", lambda conn, session_id: calls.setdefault("search", []).append((conn, session_id)))
+
+    result = main._record_playback_started(SimpleNamespace(session_id="session-1", paper_id="p-current"))
+
+    assert result[0]["type"] == "session_playback_started"
+    assert calls["events"] == [
+        ("session-1", "session_playback_started", {"session_id": "session-1", "paper_id": "p-current"})
+    ]
+    assert calls["search"] == [(fake_conn, "session-1")]
+
+
+def test_set_next_candidate_after_playback_started_uses_latest_candidate(monkeypatch) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", Path("/tmp") / "quick-auditory-learning-logs")
+    main = load_backend_main(monkeypatch)
+
+    calls = {}
+
+    session = SimpleNamespace(
+        session_id="session-1",
+        current_paper_id="p-current",
+        next_paper_id="p-old",
+        status="active",
+    )
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_conn = FakeConnection()
+
+    def fake_set_session_next_candidate(conn, session_id, paper_id):
+        calls.setdefault("set_candidate", []).append((session_id, paper_id))
+        session.next_paper_id = paper_id
+
+    monkeypatch.setattr(main, "connection", lambda: fake_conn)
+    monkeypatch.setattr(main, "get_playback_session", lambda *args, **kwargs: session)
+    def fake_get_paper(conn, paper_id):
+        if paper_id == "p-current":
+            return SimpleNamespace(id="p-current")
+        if paper_id == "p-new":
+            return SimpleNamespace(id="p-new")
+        return None
+
+    monkeypatch.setattr(main, "get_paper", fake_get_paper)
+    monkeypatch.setattr(main, "set_session_next_candidate", fake_set_session_next_candidate)
+    monkeypatch.setattr(main, "update_playback_session", lambda *args, **kwargs: calls.setdefault("update", []).append((args, kwargs)))
+    monkeypatch.setattr(main, "list_session_events", lambda *args, **kwargs: [SimpleNamespace(event_type="session_playback_started", payload={"session_id": "session-1", "paper_id": "p-current"})])
+    monkeypatch.setattr(main, "_schedule_next_paper_search_prefetch", lambda session_id, paper_id: calls.setdefault("search", []).append((session_id, paper_id)))
+    monkeypatch.setattr(
+        main,
+        "_append_session_event_message",
+        lambda conn, session_id, event_type, payload: calls.setdefault("events", []).append((session_id, event_type, payload)) or {"session_id": session_id, "seq": 1, "type": event_type, **payload},
+    )
+
+    result = main._set_next_candidate_paper(SimpleNamespace(session_id="session-1", paper_id="p-new"))
+
+    assert result[0]["type"] == "session_next_candidate_updated"
+    assert calls["set_candidate"] == [("session-1", "p-new")]
+    assert calls["search"] == [("session-1", "p-new")]
+    assert calls["events"] == [
+        ("session-1", "session_next_candidate_updated", {"session_id": "session-1", "paper_id": "p-new", "next_paper_id": "p-new"})
+    ]
+
+
+def test_paper_ready_payload_uses_prefetched_search_result(monkeypatch, tmp_path) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", tmp_path / "logs")
+    from quick_auditory_learning import main
+
+    calls = {}
+
+    def fake_build_followup_query(title: str, abstract: str) -> str:
+        return f"{title} / {abstract}"
+
+    def fake_generate_explanation(paper_id: str, force: bool = False, *, cost_recorder=None, should_continue=None, notice_recorder=None):
+        calls["generate_explanation"] = (paper_id, force)
+        return SimpleNamespace(
+            explanation="generated explanation",
+            audio_url="/audio/paper",
+            audio_urls=["/audio/paper"],
+            audio_duration_ms=1234,
+            notices=[],
+        )
+
+    prefetched_search = {
+        "search": {
+            "hits": [{"paper": {"id": "p-next"}, "score": 0.8, "route1_score": 0.6, "route2_score": 0.2}],
+            "rejected_candidates": [],
+            "fallback_used": False,
+        },
+        "simple_search_query": "prefetched simple",
+        "followup_query": "prefetched simple",
+        "keyword_search_query": "prefetched keyword",
+        "search_keyword": "prefetched keyword",
+        "fulltext_search_query": "prefetched fulltext",
+        "search_modes": ["simple", "keyword_list", "fulltext_query"],
+        "next_paper_id": "p-future",
+        "notices": ["prefetched notice"],
+    }
+
+    monkeypatch.setattr(main, "build_followup_query", fake_build_followup_query)
+    monkeypatch.setattr(main, "generate_explanation", fake_generate_explanation)
+    monkeypatch.setattr(main, "_consume_session_search_prefetch", lambda session_id, paper_id: prefetched_search)
+    monkeypatch.setattr(main, "_schedule_paper_search_update", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("search update should not be scheduled")))
+    monkeypatch.setattr(
+        main,
+        "_set_session_next_paper_id",
+        lambda conn, session_id, next_paper_id: calls.setdefault("next_paper_id", []).append((session_id, next_paper_id)),
+    )
+    monkeypatch.setattr(main, "get_session_generation_costs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_paper_cost_payload", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "get_paper_memo", lambda *args, **kwargs: None)
+
+    paper = SimpleNamespace(
+        id="p-current",
+        title="Current paper",
+        abstract="Current abstract",
+        model_dump=lambda mode: {"id": "p-current", "title": "Current paper", "abstract": "Current abstract"},
+    )
+
+    result = main._paper_ready_payload(
+        conn=object(),
+        client=object(),
+        session_id="session-1",
+        paper=paper,
+        origin="regenerate",
+        from_paper_id="p-current",
+        trail_paper_ids=["p-previous", "p-current"],
+        config={
+            "model_name": "text-embedding-3-large",
+            "include_old_vectors": False,
+            "limit": 5,
+            "route1_weight": 0.55,
+            "route2_weight": 0.45,
+            "seed": None,
+            "search_modes": ["simple", "keyword_list", "fulltext_query"],
+        },
+        force_explanation=True,
+        defer_search=True,
+    )
+
+    assert calls["generate_explanation"] == ("p-current", True)
+    assert result["search_deferred"] is False
+    assert [hit["paper"]["id"] for hit in result["search"]["hits"]] == ["p-next"]
+    assert result["next_paper_id"] == "p-future"
+    assert result["keyword_search_query"] == "prefetched keyword"
+    assert result["fulltext_search_query"] == "prefetched fulltext"
+    assert result["notices"] == ["prefetched notice"]
+    assert calls["next_paper_id"] == [("session-1", "p-future")]
+
+
+def test_paper_search_payload_accepts_prefetch_cost_recorder(monkeypatch, tmp_path) -> None:
+    from quick_auditory_learning import settings as settings_module
+
+    monkeypatch.setattr(settings_module.settings, "log_dir", tmp_path / "logs")
+    from quick_auditory_learning import main
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_build_followup_query(title: str, abstract: str) -> str:
+        return f"{title} / {abstract}"
+
+    def fake_generate_search_keyword(client, model_name: str, title: str, abstract: str):
+        return SimpleNamespace(search_keyword="llm keyword", elapsed_ms=123, input_tokens=8, output_tokens=4)
+
+    def fake_generate_fulltext_query(client, model_name: str, title: str, abstract: str):
+        return SimpleNamespace(search_query="llm fulltext", elapsed_ms=234, input_tokens=9, output_tokens=5)
+
+    def fake_embed_text(client, model_name: str, query: str) -> list[float]:
+        return SimpleNamespace(embedding=[0.1], input_tokens=10)
+
+    def fake_search_papers(conn, client, request, query_embedding, cost_recorder=None):
+        if cost_recorder is not None:
+            started_at = datetime(2026, 4, 10, 0, 0, 0, tzinfo=timezone.utc)
+            finished_at = datetime(2026, 4, 10, 0, 0, 1, tzinfo=timezone.utc)
+            cost_recorder("search", started_at, finished_at, 1000, 0.01, {"query": request.query})
+
+        class FakeSearchResponse:
+            def model_dump(self, mode: str) -> dict[str, object]:
+                assert mode == "json"
+                return {
+                    "hits": [{"paper": {"id": "p-next", "title": "Next paper"}, "score": 0.8, "route1_score": 0.6, "route2_score": 0.2}],
+                    "rejected_candidates": [{"paper_id": "p-reject", "title": "Rejected", "score": 0.1}],
+                    "fallback_used": False,
+                }
+
+        return FakeSearchResponse()
+
+    monkeypatch.setattr(main, "build_followup_query", fake_build_followup_query)
+    monkeypatch.setattr(main, "generate_search_keyword", fake_generate_search_keyword)
+    monkeypatch.setattr(main, "generate_fulltext_query", fake_generate_fulltext_query)
+    monkeypatch.setattr(main, "make_client", lambda api_key: object())
+    monkeypatch.setattr(main, "embed_text", fake_embed_text)
+    monkeypatch.setattr(main, "search_papers", fake_search_papers)
+
+    paper = SimpleNamespace(
+        id="p-current",
+        title="Current paper",
+        abstract="Current abstract",
+        model_dump=lambda mode: {"id": "p-current", "title": "Current paper", "abstract": "Current abstract"},
+    )
+
+    result = main._paper_search_payload(
+        conn=object(),
+        client=object(),
+        session_id="session-1",
+        paper=paper,
+        trail_paper_ids=["p-previous", "p-current"],
+        config={
+            "model_name": "text-embedding-3-large",
+            "include_old_vectors": False,
+            "limit": 5,
+            "route1_weight": 0.55,
+            "route2_weight": 0.45,
+            "seed": None,
+            "search_modes": ["simple", "keyword_list", "fulltext_query"],
+        },
+        cost_recorder=lambda kind, started_at, finished_at, elapsed_ms, estimated_cost_usd, detail: calls.append(
+            (kind, dict(detail))
+        ),
+    )
+
+    assert result["next_paper_id"] == "p-next"
+    assert any(kind == "search" for kind, _ in calls)
+    assert any(kind == "embedding" for kind, _ in calls)
+    assert any(kind == "keyword_generation" for kind, _ in calls)
+    assert any(kind == "query_generation" for kind, _ in calls)
 
 
 def test_parse_arxiv_identifier_accepts_abs_and_pdf_urls() -> None:
@@ -1102,7 +1801,6 @@ def test_paper_ready_payload_keeps_search_and_force_flag(monkeypatch, tmp_path) 
     monkeypatch.setattr(main, "_set_session_next_paper_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(main, "weighted_choice_hit", lambda *args, **kwargs: ("p-next", {"id": "p-next"}))
     monkeypatch.setattr(main, "_paper_cost_payload", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "list_session_queue_paper_ids", lambda *args, **kwargs: [])
     monkeypatch.setattr(main, "get_paper_memo", lambda *args, **kwargs: None)
 
     paper = SimpleNamespace(
@@ -1149,7 +1847,7 @@ def test_paper_ready_payload_keeps_search_and_force_flag(monkeypatch, tmp_path) 
         if len(args) >= 2 and args[1] in {"keyword_generation", "query_generation", "embedding", "search"}
     ]
     assert search_related_paper_ids
-    assert set(search_related_paper_ids) == {"p-next"}
+    assert set(search_related_paper_ids) == {"p-current"}
 
 
 def test_paper_ready_payload_collects_api_failure_notices(monkeypatch, tmp_path) -> None:
@@ -1197,7 +1895,6 @@ def test_paper_ready_payload_collects_api_failure_notices(monkeypatch, tmp_path)
     monkeypatch.setattr(main, "get_session_generation_costs", fake_get_session_generation_costs)
     monkeypatch.setattr(main, "_set_session_next_paper_id", lambda *args, **kwargs: None)
     monkeypatch.setattr(main, "_paper_cost_payload", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "list_session_queue_paper_ids", lambda *args, **kwargs: [])
     monkeypatch.setattr(main, "get_paper_memo", lambda *args, **kwargs: None)
 
     paper = SimpleNamespace(

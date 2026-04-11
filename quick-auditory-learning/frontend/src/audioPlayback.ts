@@ -20,3 +20,7 @@ export function resolveAudioSourceUrl(apiBaseUrl: string, audioUrl: string | und
   }
   return audioUrl.startsWith("http") ? audioUrl : `${apiBaseUrl}${audioUrl}`;
 }
+
+export function resolveShouldAutoPlayAfterReset(options?: { shouldAutoPlay?: boolean }): boolean {
+  return options?.shouldAutoPlay ?? true;
+}

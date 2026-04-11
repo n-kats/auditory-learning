@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -137,7 +137,7 @@ class SessionStopRequest(BaseModel):
 
 
 class SessionClientMessage(BaseModel):
-    type: str
+    type: Literal["start", "resume", "next", "set_next_candidate", "stop", "regenerate", "playback_started"]
     source_url: str | None = None
     session_id: str | None = None
     paper_id: str | None = None
@@ -171,6 +171,7 @@ class SessionSnapshot(BaseModel):
 class SessionListItem(BaseModel):
     session_id: str
     status: str
+    session_websocket_connections: int = 0
     root_source_url: str
     root_paper_id: str
     root_paper_title: str | None = None

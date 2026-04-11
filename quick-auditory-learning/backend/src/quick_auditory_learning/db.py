@@ -100,8 +100,8 @@ def _row_elapsed_after_request_ms(row: Mapping[str, object], requested_at: datet
     elapsed_ms = _row_duration_ms(row)
     if elapsed_ms <= 0:
         return 0
-    start_at, end_at = _row_time_bounds(row)
-    if requested_at is None or not hasattr(requested_at, "timestamp") or start_at is None or end_at is None:
+    _, end_at = _row_time_bounds(row)
+    if requested_at is None or not hasattr(requested_at, "timestamp") or end_at is None:
         return elapsed_ms
     if requested_at >= end_at:
         return 0
@@ -147,45 +147,49 @@ def _row_duration_ms(row: Mapping[str, object]) -> int:
     return int(row.get("elapsed_ms") or 0)
 
 
+def _row_interval_ms(row: Mapping[str, object], requested_at: datetime | None = None) -> tuple[int, int] | None:
+    start_at, end_at = _row_time_bounds(row)
+    if start_at is None or end_at is None or not hasattr(start_at, "timestamp") or not hasattr(end_at, "timestamp"):
+        return None
+    start_ms = int(start_at.timestamp() * 1000)
+    end_ms = int(end_at.timestamp() * 1000)
+    if requested_at is not None and hasattr(requested_at, "timestamp"):
+        requested_at_ms = int(requested_at.timestamp() * 1000)
+        if requested_at_ms >= end_ms:
+            return None
+        start_ms = max(start_ms, requested_at_ms)
+    if end_ms <= start_ms:
+        return None
+    return start_ms, end_ms
+
+
+def _interval_union_ms(intervals: Iterable[tuple[int, int]]) -> int:
+    merged: list[tuple[int, int]] = []
+    for start_ms, end_ms in sorted(intervals, key=lambda item: (item[0], item[1])):
+        if end_ms <= start_ms:
+            continue
+        if not merged or start_ms > merged[-1][1]:
+            merged.append((start_ms, end_ms))
+            continue
+        prev_start_ms, prev_end_ms = merged[-1]
+        merged[-1] = (prev_start_ms, max(prev_end_ms, end_ms))
+    return sum(end_ms - start_ms for start_ms, end_ms in merged)
+
+
 def generation_cost_wall_elapsed_ms_from_rows(
     rows: Iterable[Mapping[str, object]],
     requested_at_by_paper_id: Mapping[str, datetime] | None = None,
 ) -> int:
     intervals: list[tuple[int, int]] = []
-    fallback_total = 0
     for row in rows:
-        elapsed_ms = _row_duration_ms(row)
-        if elapsed_ms <= 0:
-            continue
-        start_at, end_at = _row_time_bounds(row)
-        if start_at is None or end_at is None or not hasattr(start_at, "timestamp") or not hasattr(end_at, "timestamp"):
-            fallback_total += elapsed_ms
-            continue
-        start_ms = int(start_at.timestamp() * 1000)
-        end_ms = int(end_at.timestamp() * 1000)
+        requested_at = None
         if requested_at_by_paper_id is not None:
             paper_id = str(row.get("paper_id") or "")
             requested_at = requested_at_by_paper_id.get(paper_id)
-            if requested_at is not None and hasattr(requested_at, "timestamp"):
-                requested_at_ms = int(requested_at.timestamp() * 1000)
-                if requested_at_ms >= end_ms:
-                    continue
-                start_ms = requested_at_ms
-        intervals.append((start_ms, end_ms))
-    if not intervals:
-        return fallback_total
-    intervals.sort()
-    total = 0
-    current_start, current_end = intervals[0]
-    for start_ms, end_ms in intervals[1:]:
-        if start_ms <= current_end:
-            current_end = max(current_end, end_ms)
-            continue
-        total += current_end - current_start
-        current_start = start_ms
-        current_end = end_ms
-    total += current_end - current_start
-    return total + fallback_total
+        interval = _row_interval_ms(row, requested_at=requested_at)
+        if interval is not None:
+            intervals.append(interval)
+    return _interval_union_ms(intervals)
 
 
 def generation_cost_total_cost_usd_from_rows(
@@ -1254,7 +1258,7 @@ def list_session_trail_paper_ids(conn: psycopg.Connection, session_id: str) -> l
         return [row["paper_id"] for row in cursor.fetchall()]
 
 
-def set_session_queue_item(conn: psycopg.Connection, session_id: str, paper_id: str) -> int:
+def set_session_next_candidate(conn: psycopg.Connection, session_id: str, paper_id: str) -> int:
     with conn.transaction():
         with conn.cursor() as cursor:
             cursor.execute(
@@ -1276,19 +1280,7 @@ def set_session_queue_item(conn: psycopg.Connection, session_id: str, paper_id: 
     return 1
 
 
-def remove_session_queue_item(conn: psycopg.Connection, session_id: str, paper_id: str) -> bool:
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            DELETE FROM session_queue_items
-            WHERE session_id = %s AND paper_id = %s
-            """,
-            (session_id, paper_id),
-        )
-        return cursor.rowcount > 0
-
-
-def pop_session_queue_item(conn: psycopg.Connection, session_id: str) -> str | None:
+def pop_session_next_candidate(conn: psycopg.Connection, session_id: str) -> str | None:
     with conn.transaction():
         with conn.cursor() as cursor:
             cursor.execute(
@@ -1314,16 +1306,3 @@ def pop_session_queue_item(conn: psycopg.Connection, session_id: str) -> str | N
             )
     return paper_id
 
-
-def list_session_queue_paper_ids(conn: psycopg.Connection, session_id: str) -> list[str]:
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT paper_id
-            FROM session_queue_items
-            WHERE session_id = %s
-            ORDER BY position ASC
-            """,
-            (session_id,),
-        )
-        return [row["paper_id"] for row in cursor.fetchall()]

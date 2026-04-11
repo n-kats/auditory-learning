@@ -40,11 +40,9 @@ from quick_auditory_learning.db import (
     list_session_events,
     list_playback_sessions,
     list_session_trail_paper_ids,
-    list_session_queue_paper_ids,
-    pop_session_queue_item,
+    pop_session_next_candidate,
     record_generation_cost,
-    remove_session_queue_item,
-    set_session_queue_item,
+    set_session_next_candidate,
     session_requested_at_by_paper_id,
     upsert_explanation,
     update_playback_session,
@@ -93,11 +91,22 @@ memo_room_queues: dict[str, set[asyncio.Queue[dict[str, object]]]] = defaultdict
 memo_room_lock = threading.Lock()
 session_room_queues: dict[str, set[tuple[asyncio.Queue[dict[str, object]], asyncio.AbstractEventLoop]]] = defaultdict(set)
 session_room_lock = threading.Lock()
+session_room_pending_events: dict[str, list[dict[str, object]]] = defaultdict(list)
+session_room_pending_lock = threading.Lock()
 CostRecorder = Callable[[str, datetime, datetime, int, float, dict[str, object]], None]
 PREFETCH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="quick-prefetch")
 PREFETCH_LOCK = threading.Lock()
 PREFETCH_SESSION_TARGETS: dict[str, str] = {}
 PREFETCH_INFLIGHT: set[tuple[str, str]] = set()
+SEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="quick-search")
+SEARCH_LOCK = threading.Lock()
+SEARCH_SESSION_TARGETS: dict[str, str] = {}
+SEARCH_INFLIGHT: set[tuple[str, str]] = set()
+SEARCH_PREFETCH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="quick-search-prefetch")
+SEARCH_PREFETCH_LOCK = threading.Lock()
+SEARCH_PREFETCH_SESSION_TARGETS: dict[str, str] = {}
+SEARCH_PREFETCH_INFLIGHT: set[tuple[str, str]] = set()
+SEARCH_PREFETCH_CACHE: dict[tuple[str, str], dict[str, object]] = {}
 
 
 class PrefetchCancelled(RuntimeError):
@@ -231,8 +240,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 @app.get("/health")
-def health() -> dict[str, str | bool]:
-    return {"status": "ok", "database_ready": database_ready_event.is_set()}
+def health() -> dict[str, str | bool | int]:
+    return {
+        "status": "ok",
+        "database_ready": database_ready_event.is_set(),
+        "session_websocket_connections": _session_websocket_connection_count(),
+    }
 
 
 @app.get("/config")
@@ -392,9 +405,33 @@ def _session_room_unbind(session_id: str, queue: asyncio.Queue[dict[str, object]
             session_room_queues.pop(session_id, None)
 
 
+def _session_room_drain_pending(session_id: str) -> list[dict[str, object]]:
+    with session_room_pending_lock:
+        pending = session_room_pending_events.pop(session_id, [])
+    return list(pending)
+
+
+def _session_websocket_connection_count() -> int:
+    with session_room_lock:
+        return sum(len(listeners) for listeners in session_room_queues.values())
+
+
+def _session_websocket_connection_counts() -> dict[str, int]:
+    with session_room_lock:
+        return {session_id: len(listeners) for session_id, listeners in session_room_queues.items()}
+
+
+def _session_room_buffer_pending(session_id: str, payload: dict[str, object]) -> None:
+    with session_room_pending_lock:
+        session_room_pending_events[session_id].append(payload)
+
+
 def _session_room_broadcast(session_id: str, payload: dict[str, object]) -> None:
     with session_room_lock:
         listeners = list(session_room_queues.get(session_id, set()))
+    if not listeners:
+        _session_room_buffer_pending(session_id, payload)
+        return
     for queue, loop in listeners:
         def _enqueue() -> None:
             with suppress(asyncio.QueueFull):
@@ -459,11 +496,13 @@ def history_recent(limit: int = 20) -> dict[str, list[dict[str, str | None]]]:
 def sessions_recent(limit: int = 20) -> SessionListResponse:
     with connection() as conn:
         sessions = list_playback_sessions(conn, limit=limit)
+    session_websocket_connection_counts = _session_websocket_connection_counts()
     return SessionListResponse(
         sessions=[
             SessionListItem(
                 session_id=session.session_id,
                 status=session.status,
+                session_websocket_connections=session_websocket_connection_counts.get(session.session_id, 0),
                 root_source_url=session.root_source_url,
                 root_paper_id=session.root_paper_id,
                 root_paper_title=session.root_paper_title,
@@ -581,6 +620,187 @@ def _set_session_next_paper_id(conn, session_id: str, next_paper_id: str) -> Non
 def _clear_session_prefetch(session_id: str) -> None:
     with PREFETCH_LOCK:
         PREFETCH_SESSION_TARGETS.pop(session_id, None)
+    _clear_session_search_prefetch(session_id)
+
+
+def _latest_playback_started_paper_id(conn, session_id: str) -> str | None:
+    events = list_session_events(conn, session_id)
+    payload = latest_event_payload(events, "session_playback_started")
+    if payload is None:
+        return None
+    paper_id = str(payload.get("paper_id") or "")
+    return paper_id or None
+
+
+def _search_target_is_current(session_id: str, paper_id: str) -> bool:
+    with SEARCH_LOCK:
+        return SEARCH_SESSION_TARGETS.get(session_id) == paper_id
+
+
+def _clear_session_search(session_id: str) -> None:
+    with SEARCH_LOCK:
+        SEARCH_SESSION_TARGETS.pop(session_id, None)
+
+
+def _search_prefetch_target_is_current(session_id: str, paper_id: str) -> bool:
+    with SEARCH_PREFETCH_LOCK:
+        return SEARCH_PREFETCH_SESSION_TARGETS.get(session_id) == paper_id
+
+
+def _clear_session_search_prefetch(session_id: str) -> None:
+    with SEARCH_PREFETCH_LOCK:
+        SEARCH_PREFETCH_SESSION_TARGETS.pop(session_id, None)
+        for key in [key for key in SEARCH_PREFETCH_CACHE if key[0] == session_id]:
+            SEARCH_PREFETCH_CACHE.pop(key, None)
+
+
+def _consume_session_search_prefetch(session_id: str, paper_id: str) -> dict[str, object] | None:
+    key = (session_id, paper_id)
+    with SEARCH_PREFETCH_LOCK:
+        return SEARCH_PREFETCH_CACHE.pop(key, None)
+
+
+def _schedule_next_paper_search_prefetch(session_id: str, paper_id: str) -> None:
+    if not paper_id:
+        return
+    key = (session_id, paper_id)
+    with SEARCH_PREFETCH_LOCK:
+        SEARCH_PREFETCH_SESSION_TARGETS[session_id] = paper_id
+        SEARCH_PREFETCH_CACHE.pop(key, None)
+        if key in SEARCH_PREFETCH_INFLIGHT:
+            return
+        SEARCH_PREFETCH_INFLIGHT.add(key)
+
+    def _run() -> None:
+        try:
+            if not _search_prefetch_target_is_current(session_id, paper_id):
+                raise PrefetchCancelled()
+            with connection() as conn:
+                session = get_playback_session(conn, session_id)
+                paper = get_paper(conn, paper_id)
+                if session is None or paper is None:
+                    raise PrefetchCancelled()
+
+                def _prefetch_cost_recorder(
+                    kind: str,
+                    started_at: datetime,
+                    finished_at: datetime,
+                    elapsed_ms: int,
+                    estimated_cost_usd: float,
+                    detail: dict[str, object],
+                ) -> None:
+                    _record_generation_cost_and_notify(
+                        conn,
+                        kind,
+                        session_id=session_id,
+                        paper_id=paper_id,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        elapsed_ms=elapsed_ms,
+                        estimated_cost_usd=estimated_cost_usd,
+                        detail={**detail, "generation_scope": "prefetch"},
+                    )
+
+                trail_ids = list_session_trail_paper_ids(conn, session_id)
+                search_result = _paper_search_payload(
+                    conn,
+                    require_openai_client("next paper search prefetch"),
+                    session_id,
+                    paper,
+                    trail_paper_ids=[*trail_ids, paper_id],
+                    config=session.config,
+                    cost_recorder=_prefetch_cost_recorder,
+                )
+                if not _search_prefetch_target_is_current(session_id, paper_id):
+                    raise PrefetchCancelled()
+                with SEARCH_PREFETCH_LOCK:
+                    if SEARCH_PREFETCH_SESSION_TARGETS.get(session_id) != paper_id:
+                        raise PrefetchCancelled()
+                    SEARCH_PREFETCH_CACHE[key] = search_result
+                if not _search_prefetch_target_is_current(session_id, paper_id):
+                    raise PrefetchCancelled()
+                next_paper_id = str(search_result.get("next_paper_id") or "")
+                if next_paper_id:
+                    _set_session_next_paper_id(conn, session_id, next_paper_id)
+        except PrefetchCancelled:
+            return
+        except Exception:  # noqa: BLE001
+            logger.warning("search prefetch failed: session_id=%s paper_id=%s", session_id, paper_id, exc_info=True)
+        finally:
+            with SEARCH_PREFETCH_LOCK:
+                SEARCH_PREFETCH_INFLIGHT.discard(key)
+
+    SEARCH_PREFETCH_EXECUTOR.submit(_run)
+
+
+def _maybe_schedule_next_paper_search_prefetch(conn, session_id: str) -> None:
+    session = get_playback_session(conn, session_id)
+    if session is None or session.status != "active" or not session.next_paper_id:
+        return
+    playback_started_paper_id = _latest_playback_started_paper_id(conn, session_id)
+    if playback_started_paper_id != session.current_paper_id:
+        return
+    _schedule_next_paper_search_prefetch(session_id, session.next_paper_id)
+
+
+def _schedule_paper_search_update(
+    session_id: str,
+    paper,
+    trail_paper_ids: list[str],
+    config: dict[str, object],
+    *,
+    origin: str,
+    from_paper_id: str | None,
+) -> None:
+    key = (session_id, paper.id)
+    with SEARCH_LOCK:
+        SEARCH_SESSION_TARGETS[session_id] = paper.id
+        if key in SEARCH_INFLIGHT:
+            return
+        SEARCH_INFLIGHT.add(key)
+
+    def _run() -> None:
+        try:
+            if not _search_target_is_current(session_id, paper.id):
+                raise PrefetchCancelled()
+            with connection() as conn:
+                client = require_openai_client("paper search update")
+                update_payload = _paper_search_payload(
+                    conn,
+                    client,
+                    session_id,
+                    paper,
+                    trail_paper_ids=trail_paper_ids,
+                    config=config,
+                )
+                if not _search_target_is_current(session_id, paper.id):
+                    raise PrefetchCancelled()
+                next_paper_id = str(update_payload.get("next_paper_id") or "")
+                if next_paper_id:
+                    _set_session_next_paper_id(conn, session_id, next_paper_id)
+                    _maybe_schedule_next_paper_search_prefetch(conn, session_id)
+                event = _append_session_event_message(
+                    conn,
+                    session_id,
+                    "paper_search_updated",
+                    {
+                        "session_id": session_id,
+                        "paper_id": paper.id,
+                        "origin": origin,
+                        "from_paper_id": from_paper_id,
+                        **update_payload,
+                    },
+                )
+                _session_room_broadcast(session_id, event)
+        except PrefetchCancelled:
+            return
+        except Exception:  # noqa: BLE001
+            logger.warning("paper search update failed: session_id=%s paper_id=%s", session_id, paper.id, exc_info=True)
+        finally:
+            with SEARCH_LOCK:
+                SEARCH_INFLIGHT.discard(key)
+
+    SEARCH_EXECUTOR.submit(_run)
 
 
 def _session_cost_payload(conn, session_id: str) -> SessionCostsResponse | None:
@@ -820,17 +1040,15 @@ def _timing_from_result(result: object, elapsed_ms: int) -> tuple[datetime, date
     return started_at, finished_at
 
 
-def _paper_ready_payload(
+def _paper_search_payload(
     conn,
     client,
     session_id: str,
     paper,
     *,
-    origin: str,
-    from_paper_id: str | None,
     trail_paper_ids: list[str],
     config: dict[str, object],
-    force_explanation: bool = False,
+    cost_recorder: CostRecorder | None = None,
 ) -> dict[str, object]:
     simple_search_query = build_followup_query(paper.title, paper.abstract)
     enabled_search_modes = set(config.get("search_modes") or [])
@@ -863,7 +1081,6 @@ def _paper_ready_payload(
     keyword_result = None
     fulltext_result = None
     model_name = str(config["model_name"])
-    # Phase 1: keyword gen, fulltext gen, and simple query embedding run in parallel
     with ThreadPoolExecutor(max_workers=3) as executor:
         keyword_future = (
             executor.submit(
@@ -986,8 +1203,6 @@ def _paper_ready_payload(
     else:
         fulltext_search_query = ""
 
-    # Build precomputed embeddings cache: query_text -> EmbeddingResult
-    # simple_embed_result was computed in Phase 1; record its cost now
     precomputed_embeddings: dict[str, object] = {}
     if simple_embed_result is not None and simple_search_query.strip() and simple_embed_started_at is not None and simple_embed_finished_at is not None:
         _queue_next_paper_cost(
@@ -1008,10 +1223,7 @@ def _paper_ready_payload(
         )
         precomputed_embeddings[simple_search_query.strip()] = simple_embed_result
 
-    # Phase 2: embed any additional unique query texts not already embedded, in parallel
-    queries_needing_embed = [
-        q for q in search_requests if q not in precomputed_embeddings
-    ]
+    queries_needing_embed = [q for q in search_requests if q not in precomputed_embeddings]
     if queries_needing_embed:
         with ThreadPoolExecutor(max_workers=len(queries_needing_embed)) as executor:
             embed_futures = {
@@ -1048,7 +1260,6 @@ def _paper_ready_payload(
                     paper_id=paper.id,
                 )
 
-    # Phase 3: run search sequentially (requires conn, not thread-safe)
     search_payloads: list[dict[str, object]] = []
     for normalized_query, query_modes in search_requests.items():
         embed_result = precomputed_embeddings.get(normalized_query)
@@ -1091,22 +1302,76 @@ def _paper_ready_payload(
                 "fallback_used": True,
             }
         )
-    merged_search_response = _merge_search_payloads(search_payloads, int(config["limit"]), seed=config["seed"] if config["seed"] is None else int(config["seed"]))
+    merged_search_response = _merge_search_payloads(
+        search_payloads,
+        int(config["limit"]),
+        seed=config["seed"] if config["seed"] is None else int(config["seed"]),
+    )
     next_paper_id, _ = weighted_choice_hit(merged_search_response["hits"], set(trail_paper_ids))
-    next_paper_cost_paper_id = next_paper_id or paper.id
     for kind, started_at, finished_at, elapsed_ms, estimated_cost_usd, detail in pending_next_paper_costs:
+        if cost_recorder is not None:
+            cost_recorder(
+                kind,
+                started_at,
+                finished_at,
+                elapsed_ms,
+                estimated_cost_usd,
+                {**detail, "paper_id": paper.id},
+            )
+            continue
         _record_generation_cost_and_notify(
             conn,
             kind,
             session_id=session_id,
-            paper_id=next_paper_cost_paper_id,
+            paper_id=paper.id,
             started_at=started_at,
             finished_at=finished_at,
             elapsed_ms=elapsed_ms,
             estimated_cost_usd=estimated_cost_usd,
-            detail={**detail, "paper_id": next_paper_cost_paper_id},
+            detail={**detail, "paper_id": paper.id},
         )
-    _set_session_next_paper_id(conn, session_id, next_paper_id)
+    return {
+        "search": merged_search_response,
+        "simple_search_query": simple_search_query,
+        "followup_query": simple_search_query,
+        "keyword_search_query": keyword_search_query or simple_search_query,
+        "search_keyword": keyword_search_query or simple_search_query,
+        "fulltext_search_query": fulltext_search_query or simple_search_query,
+        "search_modes": sorted(enabled_search_modes),
+        "next_paper_id": next_paper_id,
+        "notices": notices,
+    }
+
+
+def _paper_ready_payload(
+    conn,
+    client,
+    session_id: str,
+    paper,
+    *,
+    origin: str,
+    from_paper_id: str | None,
+    trail_paper_ids: list[str],
+    config: dict[str, object],
+    force_explanation: bool = False,
+    defer_search: bool = False,
+) -> dict[str, object]:
+    notices: list[str] = []
+    simple_search_query = build_followup_query(paper.title, paper.abstract)
+    enabled_search_modes = set(config.get("search_modes") or [])
+    if not enabled_search_modes:
+        enabled_search_modes = {"simple", "keyword_list", "fulltext_query"}
+    prefetched_search_result = _consume_session_search_prefetch(session_id, paper.id) if defer_search else None
+    if defer_search:
+        if prefetched_search_result is None:
+            _schedule_paper_search_update(
+                session_id,
+                paper,
+                trail_paper_ids,
+                config,
+                origin=origin,
+                from_paper_id=from_paper_id,
+            )
     explanation_response = generate_explanation(
         paper.id,
         force=force_explanation,
@@ -1123,6 +1388,38 @@ def _paper_ready_payload(
         ),
         notice_recorder=lambda message: _record_generation_notice(notices, message, session_id=session_id, paper_id=paper.id),
     )
+    search_result: dict[str, object] = {"hits": [], "rejected_candidates": [], "fallback_used": True}
+    keyword_search_query = simple_search_query
+    fulltext_search_query = simple_search_query
+    search_deferred = defer_search
+    if prefetched_search_result is not None:
+        search_result = prefetched_search_result
+        keyword_search_query = str(search_result.get("keyword_search_query") or simple_search_query)
+        fulltext_search_query = str(search_result.get("fulltext_search_query") or simple_search_query)
+        next_paper_id = str(search_result.get("next_paper_id") or "")
+        if next_paper_id:
+            _set_session_next_paper_id(conn, session_id, next_paper_id)
+        search_notices = search_result.get("notices")
+        if isinstance(search_notices, list) and search_notices:
+            notices.extend(str(notice) for notice in search_notices)
+        search_deferred = False
+    if not defer_search:
+        search_result = _paper_search_payload(
+            conn,
+            client,
+            session_id,
+            paper,
+            trail_paper_ids=trail_paper_ids,
+            config=config,
+        )
+        keyword_search_query = str(search_result.get("keyword_search_query") or simple_search_query)
+        fulltext_search_query = str(search_result.get("fulltext_search_query") or simple_search_query)
+        next_paper_id = str(search_result.get("next_paper_id") or "")
+        if next_paper_id:
+            _set_session_next_paper_id(conn, session_id, next_paper_id)
+        search_notices = search_result.get("notices")
+        if isinstance(search_notices, list) and search_notices:
+            notices.extend(str(notice) for notice in search_notices)
     session_costs = _session_cost_payload(conn, session_id)
     try:
         paper_costs = _paper_cost_payload(conn, session_id, paper.id)
@@ -1134,10 +1431,10 @@ def _paper_ready_payload(
         "origin": origin,
         "from_paper_id": from_paper_id,
         "trail_paper_ids": trail_paper_ids,
-        "queued_paper_ids": list_session_queue_paper_ids(conn, session_id),
-        "next_paper_id": next_paper_id,
+        "next_paper_id": search_result.get("next_paper_id") if not search_deferred else None,
         "paper": paper.model_dump(mode="json"),
-        "search": merged_search_response,
+        "search": search_result.get("search") if not search_deferred else {"hits": [], "rejected_candidates": [], "fallback_used": True},
+        "search_deferred": search_deferred,
         "simple_search_query": simple_search_query,
         "followup_query": simple_search_query,
         "keyword_search_query": keyword_search_query or simple_search_query,
@@ -1237,6 +1534,7 @@ def _start_session(message: SessionClientMessage) -> list[dict[str, object]]:
             from_paper_id=None,
             trail_paper_ids=trail_ids,
             config=config,
+            defer_search=True,
         )
         paper_event = _append_session_event_message(conn, session_id, "paper_ready", paper_ready)
     return [started_event, paper_event]
@@ -1253,10 +1551,10 @@ def _advance_session(message: SessionClientMessage) -> list[dict[str, object]]:
         current_paper = get_paper(conn, session.current_paper_id)
         if current_paper is None:
             raise ValueError(f"paper not found: {session.current_paper_id}")
-        queued_paper_id = pop_session_queue_item(conn, message.session_id)
-        if queued_paper_id:
-            next_paper_id = queued_paper_id
-            origin = "queue"
+        next_candidate_paper_id = pop_session_next_candidate(conn, message.session_id)
+        if next_candidate_paper_id:
+            next_paper_id = next_candidate_paper_id
+            origin = "next_candidate"
         else:
             next_paper_id = session.next_paper_id
             origin = "search"
@@ -1306,16 +1604,13 @@ def _advance_session(message: SessionClientMessage) -> list[dict[str, object]]:
             from_paper_id=current_paper.id,
             trail_paper_ids=trail_ids,
             config=config,
+            defer_search=True,
         )
         paper_event = _append_session_event_message(conn, message.session_id, "paper_ready", paper_ready)
     return [next_requested_event, advanced_event, paper_event]
 
 
-def _select_paper(message: SessionClientMessage) -> list[dict[str, object]]:
-    return _queue_paper(message)
-
-
-def _queue_paper(message: SessionClientMessage) -> list[dict[str, object]]:
+def _set_next_candidate_paper(message: SessionClientMessage) -> list[dict[str, object]]:
     if not message.session_id:
         raise ValueError("session_id is required")
     if not message.paper_id:
@@ -1327,58 +1622,25 @@ def _queue_paper(message: SessionClientMessage) -> list[dict[str, object]]:
         current_paper = get_paper(conn, session.current_paper_id)
         if current_paper is None:
             raise ValueError(f"paper not found: {session.current_paper_id}")
-        queued_paper = get_paper(conn, message.paper_id)
-        if queued_paper is None:
+        next_candidate_paper = get_paper(conn, message.paper_id)
+        if next_candidate_paper is None:
             raise ValueError(f"paper not found: {message.paper_id}")
-        if queued_paper.id == current_paper.id:
-            raise ValueError("current paper cannot be queued")
-        set_session_queue_item(conn, message.session_id, queued_paper.id)
-        queued_ids = list_session_queue_paper_ids(conn, message.session_id)
-        _set_session_next_paper_id(conn, message.session_id, queued_paper.id)
-        queued_event = _append_session_event_message(
+        if next_candidate_paper.id == current_paper.id:
+            raise ValueError("current paper cannot be selected as next candidate")
+        set_session_next_candidate(conn, message.session_id, next_candidate_paper.id)
+        _set_session_next_paper_id(conn, message.session_id, next_candidate_paper.id)
+        _maybe_schedule_next_paper_search_prefetch(conn, message.session_id)
+        next_candidate_event = _append_session_event_message(
             conn,
             message.session_id,
-            "session_queued",
+            "session_next_candidate_updated",
             {
                 "session_id": message.session_id,
-                "paper_id": queued_paper.id,
-                "queued_paper_ids": queued_ids,
-                "next_paper_id": queued_paper.id,
+                "paper_id": next_candidate_paper.id,
+                "next_paper_id": next_candidate_paper.id,
             },
         )
-    return [queued_event]
-
-
-def _dequeue_paper(message: SessionClientMessage) -> list[dict[str, object]]:
-    if not message.session_id:
-        raise ValueError("session_id is required")
-    if not message.paper_id:
-        raise ValueError("paper_id is required")
-    with connection() as conn:
-        session = get_playback_session(conn, message.session_id)
-        if session is None:
-            raise ValueError(f"session not found: {message.session_id}")
-        removed = remove_session_queue_item(conn, message.session_id, message.paper_id)
-        if not removed:
-            return []
-        queued_ids = list_session_queue_paper_ids(conn, message.session_id)
-        if queued_ids:
-            next_paper_id = queued_ids[0]
-        else:
-            next_paper_id = restore_next_paper_id(conn, message.session_id)
-        _set_session_next_paper_id(conn, message.session_id, next_paper_id)
-        dequeued_event = _append_session_event_message(
-            conn,
-            message.session_id,
-            "session_queued",
-            {
-                "session_id": message.session_id,
-                "paper_id": message.paper_id,
-                "queued_paper_ids": queued_ids,
-                "next_paper_id": next_paper_id,
-            },
-        )
-    return [dequeued_event]
+    return [next_candidate_event]
 
 
 def _resume_session(message: SessionClientMessage) -> list[dict[str, object]]:
@@ -1398,6 +1660,7 @@ def _stop_session(message: SessionClientMessage) -> list[dict[str, object]]:
             raise ValueError(f"session not found: {message.session_id}")
         update_playback_session(conn, message.session_id, status="stopped")
         _clear_session_prefetch(message.session_id)
+        _clear_session_search(message.session_id)
         stopped_event = _append_session_event_message(
             conn,
             message.session_id,
@@ -1405,6 +1668,29 @@ def _stop_session(message: SessionClientMessage) -> list[dict[str, object]]:
             {"session_id": message.session_id, "status": "stopped"},
         )
     return [stopped_event]
+
+
+def _record_playback_started(message: SessionClientMessage) -> list[dict[str, object]]:
+    if not message.session_id:
+        raise ValueError("session_id is required")
+    with connection() as conn:
+        session = get_playback_session(conn, message.session_id)
+        if session is None:
+            raise ValueError(f"session not found: {message.session_id}")
+        paper_id = message.paper_id or session.current_paper_id
+        if paper_id != session.current_paper_id:
+            raise ValueError(f"current paper mismatch: {paper_id}")
+        event = _append_session_event_message(
+            conn,
+            message.session_id,
+            "session_playback_started",
+            {
+                "session_id": message.session_id,
+                "paper_id": paper_id,
+            },
+        )
+        _maybe_schedule_next_paper_search_prefetch(conn, message.session_id)
+    return [event]
 
 
 @app.websocket("/sessions/ws")
@@ -1437,16 +1723,14 @@ async def session_stream(websocket: WebSocket) -> None:
                     events = await anyio.to_thread.run_sync(_resume_session, message)
                 elif message.type == "next":
                     events = await anyio.to_thread.run_sync(_advance_session, message)
-                elif message.type == "select":
-                    events = await anyio.to_thread.run_sync(_queue_paper, message)
-                elif message.type == "queue":
-                    events = await anyio.to_thread.run_sync(_queue_paper, message)
-                elif message.type == "dequeue":
-                    events = await anyio.to_thread.run_sync(_dequeue_paper, message)
+                elif message.type == "set_next_candidate":
+                    events = await anyio.to_thread.run_sync(_set_next_candidate_paper, message)
                 elif message.type == "stop":
                     events = await anyio.to_thread.run_sync(_stop_session, message)
                 elif message.type == "regenerate":
                     events = await anyio.to_thread.run_sync(_regenerate_session, message)
+                elif message.type == "playback_started":
+                    events = await anyio.to_thread.run_sync(_record_playback_started, message)
                 else:
                     raise ValueError(f"unknown session command: {message.type}")
             except ValueError as exc:
@@ -1481,6 +1765,9 @@ async def session_stream(websocket: WebSocket) -> None:
                 if event.get("type") == "session_stopped" and current_session_id is not None:
                     _session_room_unbind(current_session_id, outbox, loop)
                     current_session_id = None
+            if current_session_id is not None:
+                for pending_event in _session_room_drain_pending(current_session_id):
+                    await outbox.put(pending_event)
     except WebSocketDisconnect:
         return
     finally:
@@ -1792,6 +2079,7 @@ def _regenerate_session(message: SessionClientMessage) -> list[dict[str, object]
                 trail_paper_ids=trail_ids,
                 config=session.config,
                 force_explanation=True,
+                defer_search=True,
             ),
         )
     return [regenerated_event, paper_ready]

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { clampAudioRate, clampAudioVolume, loadAudioRate, loadAudioVolume } from "./audioPlayback";
+import {
+  clampAudioRate,
+  clampAudioVolume,
+  loadAudioRate,
+  loadAudioVolume,
+  resolveShouldAutoPlayAfterReset,
+} from "./audioPlayback";
 import { resolveAudioSourceUrl, toWebSocketUrl } from "./api";
 
 describe("audioPlayback helpers", () => {
@@ -33,5 +39,11 @@ describe("audioPlayback helpers", () => {
 
   it("builds websocket urls from the api base url", () => {
     expect(toWebSocketUrl("/sessions/ws")).toBe("ws://localhost:8000/sessions/ws");
+  });
+
+  it("defaults reset autoplay to true unless explicitly disabled", () => {
+    expect(resolveShouldAutoPlayAfterReset()).toBe(true);
+    expect(resolveShouldAutoPlayAfterReset({ shouldAutoPlay: true })).toBe(true);
+    expect(resolveShouldAutoPlayAfterReset({ shouldAutoPlay: false })).toBe(false);
   });
 });

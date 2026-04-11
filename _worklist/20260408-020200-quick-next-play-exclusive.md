@@ -6,7 +6,7 @@
 
 ## 対応
 - backend の session queue を 1 件上書きに変更した。
-- frontend では `queued_paper_ids` が空でも検索結果の先頭候補を次の再生として色付けする。
+- frontend では `next_candidate_paper_ids` が空でも検索結果の先頭候補を次の再生として色付けする。
 - 既存の「次に再生」ボタンは、選択中の候補を押し直すと解除、それ以外を押すと選択先を切り替える動作にした。
 
 ## 確認
@@ -15,7 +15,7 @@
 
 ## 補足
 - 画面上のハイライトは検索結果の先頭を既定候補として使う。
-- `session_queued` イベントの `queued_paper_ids` は 0 件または 1 件になる。
+- `session_next_candidate_updated` イベントの `next_candidate_paper_ids` は 0 件または 1 件になる。
 - 次候補の自動選択は検索順位に応じた `1/rank` 重みで行う。
 - `next_paper_id` は backend が決め、frontend はそれを表示だけする。
 - `next_paper_id` が決まったら backend でその論文の解説・音声生成を先読みする。

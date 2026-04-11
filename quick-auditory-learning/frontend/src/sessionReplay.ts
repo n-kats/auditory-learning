@@ -9,11 +9,13 @@ export type SessionReplayState = {
   fulltextSearchQuery: string;
   searchModes: string[];
   trailPaperIds: string[];
-  queuedPaperIds: string[];
   nextPaperId: string | null;
   paperTitleMap: Record<string, string>;
+  searchPaperId: string | null;
   hits: SearchHit[];
   rejectedCandidates: SearchCandidate[];
+  previousSearchPaperId: string | null;
+  previousRejectedCandidates: SearchCandidate[];
   fallbackUsed: boolean;
   explanation: string;
   memo: string;
@@ -37,11 +39,13 @@ function emptySessionReplayState(snapshot: SessionSnapshot): SessionReplayState 
     fulltextSearchQuery: "",
     searchModes: [],
     trailPaperIds: [],
-    queuedPaperIds: [],
     nextPaperId: snapshot.next_paper_id ?? null,
     paperTitleMap: {},
+    searchPaperId: null,
     hits: [],
     rejectedCandidates: [],
+    previousSearchPaperId: null,
+    previousRejectedCandidates: [],
     fallbackUsed: false,
     explanation: "",
     memo: "",
@@ -68,12 +72,39 @@ export function replaySessionEvents(snapshot: SessionSnapshot, events: SessionEv
       state.lastEventSeq = event.seq;
     }
     if (event.type === "session_started") {
-      state.currentSessionId = event.session_id ?? state.currentSessionId;
+      const nextSessionId = event.session_id ?? state.currentSessionId;
+      const preserveSearchResults = state.currentSessionId === null || state.currentSessionId === nextSessionId;
+      state.currentSessionId = nextSessionId;
+      if (!preserveSearchResults) {
+        state.searchPaperId = null;
+        state.hits = [];
+        state.rejectedCandidates = [];
+        state.fallbackUsed = false;
+        state.simpleSearchQuery = "";
+        state.keywordSearchQuery = "";
+        state.fulltextSearchQuery = "";
+        state.searchModes = [];
+        state.trailPaperIds = [];
+        state.nextPaperId = null;
+        state.previousSearchPaperId = null;
+        state.previousRejectedCandidates = [];
+      }
       continue;
     }
     if (event.type === "paper_ready") {
       if (!event.paper) {
         continue;
+      }
+      const shouldPreservePreviousSearch =
+        state.currentPaper !== null &&
+        state.currentPaper.id !== event.paper.id &&
+        (event.from_paper_id === null || state.currentPaper.id === event.from_paper_id);
+      if (shouldPreservePreviousSearch) {
+        state.previousSearchPaperId = state.searchPaperId ?? state.currentPaper?.id ?? null;
+        state.previousRejectedCandidates = state.previousSearchPaperId ? state.rejectedCandidates : [];
+      } else if (state.currentSessionId !== snapshot.session_id) {
+        state.previousSearchPaperId = null;
+        state.previousRejectedCandidates = [];
       }
       state.currentSessionId = event.session_id ?? state.currentSessionId;
       state.currentPaper = event.paper;
@@ -84,11 +115,18 @@ export function replaySessionEvents(snapshot: SessionSnapshot, events: SessionEv
       state.fulltextSearchQuery = event.fulltext_search_query ?? "";
       state.searchModes = event.search_modes ?? [];
       state.trailPaperIds = event.trail_paper_ids ?? [];
-      state.queuedPaperIds = event.queued_paper_ids ?? [];
       state.nextPaperId = event.next_paper_id ?? null;
-      state.hits = event.search?.hits ?? [];
-      state.rejectedCandidates = event.search?.rejected_candidates ?? [];
-      state.fallbackUsed = Boolean(event.search?.fallback_used);
+      if (!event.search_deferred) {
+        state.searchPaperId = event.paper.id;
+        state.hits = event.search?.hits ?? [];
+        state.rejectedCandidates = event.search?.rejected_candidates ?? [];
+        state.fallbackUsed = Boolean(event.search?.fallback_used);
+      } else if (state.searchPaperId !== event.paper.id) {
+        state.searchPaperId = null;
+        state.hits = [];
+        state.rejectedCandidates = [];
+        state.fallbackUsed = false;
+      }
       state.explanation = event.explanation ?? "";
       state.memo = event.memo ?? "";
       state.paperCosts = event.paper_costs ?? null;
@@ -100,8 +138,25 @@ export function replaySessionEvents(snapshot: SessionSnapshot, events: SessionEv
       state.activeTab = "session";
       continue;
     }
-    if (event.type === "session_queued") {
-      state.queuedPaperIds = event.queued_paper_ids ?? state.queuedPaperIds;
+    if (event.type === "paper_search_updated") {
+      if (event.session_id) {
+        state.currentSessionId = event.session_id;
+      }
+      state.simpleSearchQuery = event.simple_search_query ?? event.followup_query ?? state.simpleSearchQuery;
+      state.keywordSearchQuery = event.keyword_search_query ?? event.search_keyword ?? event.followup_query ?? state.keywordSearchQuery;
+      state.fulltextSearchQuery = event.fulltext_search_query ?? state.fulltextSearchQuery;
+      state.searchModes = event.search_modes ?? state.searchModes;
+      state.nextPaperId = event.next_paper_id ?? state.nextPaperId;
+      state.searchPaperId = event.paper_id ?? state.searchPaperId;
+      state.hits = event.search?.hits ?? state.hits;
+      state.rejectedCandidates = event.search?.rejected_candidates ?? state.rejectedCandidates;
+      state.fallbackUsed = Boolean(event.search?.fallback_used);
+      if (event.notices && event.notices.length > 0) {
+        state.notices = [...state.notices, ...event.notices];
+      }
+      continue;
+    }
+    if (event.type === "session_next_candidate_updated") {
       state.nextPaperId = event.next_paper_id ?? state.nextPaperId;
       continue;
     }
@@ -121,9 +176,11 @@ export function replaySessionEvents(snapshot: SessionSnapshot, events: SessionEv
       state.fulltextSearchQuery = "";
       state.searchModes = [];
       state.trailPaperIds = [];
-      state.queuedPaperIds = [];
+      state.searchPaperId = null;
       state.hits = [];
       state.rejectedCandidates = [];
+      state.previousSearchPaperId = null;
+      state.previousRejectedCandidates = [];
       state.fallbackUsed = false;
       state.explanation = "";
       state.memo = "";

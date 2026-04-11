@@ -7,11 +7,11 @@ type SearchResultItemProps = {
   meta: ReactNode;
   sourceModes: string[];
   isSelected: boolean;
-  isQueued: boolean;
+  isNextCandidate: boolean;
   isReplayed: boolean;
   isFavorite: boolean;
   canInteract: boolean;
-  onToggleQueue: () => void;
+  onSelectNextCandidate: () => void;
   onToggleFavorite: () => void;
 };
 
@@ -22,20 +22,20 @@ export function SearchResultListItem({
   meta,
   sourceModes,
   isSelected,
-  isQueued,
+  isNextCandidate,
   isReplayed,
   isFavorite,
   canInteract,
-  onToggleQueue,
+  onSelectNextCandidate,
   onToggleFavorite,
 }: SearchResultItemProps) {
   return (
-    <li key={id} className={`result-item${isSelected ? " is-selected" : ""}${isQueued ? " is-queued" : ""}${isReplayed ? " is-replayed" : ""}`}>
+    <li key={id} className={`result-item${isSelected ? " is-selected" : ""}${isNextCandidate ? " is-next-candidate" : ""}${isReplayed ? " is-replayed" : ""}`}>
       <div className="result-row">
-        <button type="button" className={`result-next-button${isQueued ? " is-queued" : ""}`} disabled={!canInteract} onClick={onToggleQueue}>
+        <button type="button" className={`result-next-button${isNextCandidate ? " is-next-candidate" : ""}`} disabled={!canInteract} onClick={onSelectNextCandidate}>
           次に再生
         </button>
-        <div className={`result-card${isSelected ? " is-selected" : ""}${isQueued ? " is-queued" : ""}${isReplayed ? " is-replayed" : ""}`}>
+        <div className={`result-card${isSelected ? " is-selected" : ""}${isNextCandidate ? " is-next-candidate" : ""}${isReplayed ? " is-replayed" : ""}`}>
           <div className="result-card-head">
             <div className="result-main">
               <div className="result-title-line">
