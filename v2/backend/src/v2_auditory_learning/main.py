@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -7,23 +9,36 @@ from queue import Queue
 from uuid import uuid4
 
 import fastapi
-import httpx
 import openai
 from dotenv import load_dotenv
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pdf2image import convert_from_path
 from PIL import Image
 from pydantic import BaseModel
 
-from auditory_learning.utils.gpt_4o_utils import run_gpt_4o, to_image_content
-from auditory_learning.utils.pdf_utils import download_pdf
-from auditory_learning.utils.voice_utils import VoiceVoxSpeaker, text_to_wav
+from v2_auditory_learning.utils.gpt_4o_utils import run_gpt_4o, to_image_content
+from v2_auditory_learning.utils.pdf_utils import download_pdf
+from v2_auditory_learning.utils.voice_utils import VoiceVoxSpeaker, text_to_wav
 
-data_dir = Path("_data")
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_DATA_DIR = REPO_ROOT / "_data" / "v2_auditory_learning"
+DEFAULT_PROMPT_PATH = REPO_ROOT / "prompt.txt"
 
 load_dotenv()
-app = fastapi.FastAPI()
+data_dir = Path(os.environ.get("AUDITORY_LEARNING_V2_DATA_DIR", str(DEFAULT_DATA_DIR)))
+prompt_path = Path(os.environ.get("AUDITORY_LEARNING_V2_PROMPT_PATH", str(DEFAULT_PROMPT_PATH)))
+voicevox_url = os.environ.get("AUDITORY_LEARNING_V2_VOICEVOX_URL", "http://localhost:50021")
+
+app = fastapi.FastAPI(title="v2-auditory-learning")
 client = openai.Client()
+frontend_url = os.environ.get("AUDITORY_LEARNING_V2_FRONTEND_URL", "http://localhost:5174").strip()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[frontend_url] if frontend_url else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 url_to_request_id_path = data_dir / "url_to_request_id.json"
 if url_to_request_id_path.exists():
     url_to_request_id = json.loads(url_to_request_id_path.read_text())
@@ -31,17 +46,6 @@ else:
     url_to_request_id = {}
     url_to_request_id_path.parent.mkdir(parents=True, exist_ok=True)
     url_to_request_id_path.write_text(json.dumps(url_to_request_id))
-
-frontend_dir = (Path(__file__).parent.parent / "frontend").resolve()
-app.mount("/static", StaticFiles(directory=frontend_dir / "dist"), name="static")
-app.mount("/assets", StaticFiles(directory=frontend_dir / "dist/assets/"))
-prompt_path = Path(os.environ.get(
-    "AUDITORY_LEARNING_PROMPT_PATH", "prompt.txt"))
-
-
-@app.get("/")
-def root():
-    return fastapi.responses.RedirectResponse("/static/index.html")
 
 
 class InitRequest(BaseModel):
@@ -85,7 +89,6 @@ class ImageRequest(BaseModel):
 
 @app.post("/image/")
 def image(req: ImageRequest) -> fastapi.responses.FileResponse:
-    # 画像を返す
     work_dir = data_dir / req.request_id
     image_path = work_dir / "images" / f"{req.page:04d}.png"
     return fastapi.responses.FileResponse(image_path)
@@ -104,7 +107,7 @@ speaker = VoiceVoxSpeaker(
     speaker_id="1",
     speed=1.5,
     volume=4,
-    url="http://localhost:50021",
+    url=voicevox_url,
 )
 
 
@@ -122,13 +125,10 @@ def explain(req: ExplainRequest) -> ExplainResponse:
             (image_path, cache_path, audio_path),
         )
 
-    next_image_path = data_dir / req.request_id / \
-        "images" / f"{req.page + 1:04d}.png"
+    next_image_path = data_dir / req.request_id / "images" / f"{req.page + 1:04d}.png"
     if next_image_path.exists():
-        next_cache_path = data_dir / req.request_id / \
-            f"explain_{req.page + 1:04d}.txt"
-        next_audio_path = data_dir / req.request_id / \
-            f"explain_{req.page + 1:04d}.mp3"
+        next_cache_path = data_dir / req.request_id / f"explain_{req.page + 1:04d}.txt"
+        next_audio_path = data_dir / req.request_id / f"explain_{req.page + 1:04d}.mp3"
         if not (next_cache_path.exists() and next_audio_path.exists()):
             _ = reserve_generation(
                 f"{req.request_id}:{req.page + 1:04d}",
@@ -138,7 +138,7 @@ def explain(req: ExplainRequest) -> ExplainResponse:
     return ExplainResponse(explanation=explanation)
 
 
-def generate_explanation(image_path):
+def generate_explanation(image_path: Path) -> str:
     image = Image.open(image_path)
     image_type = "png"
     image_content = to_image_content(image, image_type)
@@ -164,11 +164,15 @@ def generate_explanation(image_path):
 
 
 generation_queue: Queue[tuple[str, tuple[Path, Path, Path]]] = Queue()
-request_queues: dict[str, list[Queue]] = {}
+request_queues: dict[str, list[Queue[str | Exception]]] = {}
 request_queues_lock = threading.Lock()
 
 
-def worker(fn, input_queue: Queue, output_queues: dict[str, list[Queue]]):
+def worker(
+    fn,
+    input_queue: Queue[tuple[str, tuple[Path, Path, Path]]],
+    output_queues: dict[str, list[Queue[str | Exception]]],
+) -> None:
     while True:
         key, input_ = input_queue.get()
         if key not in output_queues:
@@ -189,30 +193,26 @@ def generation_task(task_id: str, image_path: Path, cache_path: Path, audio_path
     try:
         explanation = generate_explanation(image_path)
         cache_path.write_text(explanation)
-    except Exception as e:
-        print(
-            f"[ERROR] Failed to generate explanation for {image_path}: {e}", file=sys.stderr)
-        return e
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to generate explanation for {image_path}: {exc}", file=sys.stderr)
+        return exc
     try:
         text_to_wav(explanation, speaker, audio_path, max_length=250)
-    except Exception as e:
-        print(
-            f"[ERROR] Failed to generate audio for {image_path}: {e}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERROR] Failed to generate audio for {image_path}: {exc}", file=sys.stderr)
         print(f"[ERROR] Explanation was: {explanation}", file=sys.stderr)
-        return e
-    print(
-        f"[INFO] Finished generating explanation for {image_path}", file=sys.stderr)
+        return exc
+    print(f"[INFO] Finished generating explanation for {image_path}", file=sys.stderr)
     print(f"[INFO] Explanation saved to {cache_path}", file=sys.stderr)
     print(f"[INFO] Audio saved to {audio_path}", file=sys.stderr)
     return explanation
 
 
-threading.Thread(target=worker, args=(
-    generation_task, generation_queue, request_queues), daemon=True).start()
+threading.Thread(target=worker, args=(generation_task, generation_queue, request_queues), daemon=True).start()
 
 
 def reserve_generation(task_id: str, args: tuple[Path, Path, Path]) -> Queue[str | Exception]:
-    queue = Queue()
+    queue: Queue[str | Exception] = Queue()
     with request_queues_lock:
         if task_id not in request_queues:
             request_queues[task_id] = []
@@ -221,7 +221,7 @@ def reserve_generation(task_id: str, args: tuple[Path, Path, Path]) -> Queue[str
     return queue
 
 
-def generate_explanation_through_queue(task_id: str, args) -> str | Exception:
+def generate_explanation_through_queue(task_id: str, args: tuple[Path, Path, Path]) -> str:
     queue = reserve_generation(task_id, args)
     result = queue.get()
     if isinstance(result, Exception):
@@ -233,8 +233,7 @@ def generate_explanation_through_queue(task_id: str, args) -> str | Exception:
 def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
     if not audio_path.exists():
-        explanation_path = data_dir / req.request_id / \
-            f"explain_{req.page:04d}.txt"
+        explanation_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
         explanation = explanation_path.read_text()
         text_to_wav(explanation, speaker, audio_path)
     return fastapi.responses.FileResponse(audio_path)

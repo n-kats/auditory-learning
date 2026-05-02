@@ -7,6 +7,7 @@
 ![image](docs/images/screenshot.png)
 
 別系統の実験用アプリとして `quick-auditory-learning/` も置いています。arXiv の JSONL アブスト一覧を扱う大量再生向けの構成はそちらを参照してください。
+さらに、`v2/` には quick 風の構成で分離した後継版を置いています。v1 と同じ PDF 解説機能を保ちながら、frontend/backend を分けて開発します。
 
 
 ## 使い方
@@ -59,3 +60,4 @@ $ bash ./scripts/launch.sh
 * モデルは gpt-4o 固定です。
 * 音声は ずんだもん 固定です。
 * PDFのURLは公開されているものに限ります。ローカルファイルをアップロードすることはできません。
+* 一部の公開 PDF サイトは通常の `wget` だと `403 Forbidden` になることがあります。アプリ側ではブラウザ相当の HTTP ヘッダで取得しますが、配信元の制限が強い URL は取得できない場合があります。

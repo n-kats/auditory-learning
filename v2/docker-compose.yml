@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ./backend/docker
+    depends_on:
+      - voicevox
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AUDITORY_LEARNING_V2_DATA_DIR: ${AUDITORY_LEARNING_V2_DATA_DIR:-/workspace/_data/v2_auditory_learning}
+      AUDITORY_LEARNING_V2_PROMPT_PATH: ${AUDITORY_LEARNING_V2_PROMPT_PATH:-/workspace/prompt.txt}
+      AUDITORY_LEARNING_V2_VOICEVOX_URL: ${AUDITORY_LEARNING_V2_VOICEVOX_URL:-http://voicevox:50021}
+      AUDITORY_LEARNING_V2_FRONTEND_URL: http://${AUDITORY_LEARNING_V2_HOST:-localhost}:${AUDITORY_LEARNING_V2_FRONTEND_PORT:-5174}
+    volumes:
+      - ..:/workspace
+      - ${AUDITORY_LEARNING_V2_DATA_DIR_HOST:-../_data/v2_auditory_learning}:/workspace/_data/v2_auditory_learning
+      - ${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-../_cache/v2-auditory-learning}/backend/uv_venv:/workspace/v2/backend/.venv
+      - ${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-../_cache/v2-auditory-learning}/backend/uv_cache:/workspace/_cache/v2-auditory-learning/backend/uv_cache
+    ports:
+      - "${AUDITORY_LEARNING_V2_BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    build:
+      context: ./frontend/docker
+    depends_on:
+      - backend
+    environment:
+      VITE_AUDITORY_LEARNING_V2_API_BASE_URL: http://${AUDITORY_LEARNING_V2_HOST:-localhost}:${AUDITORY_LEARNING_V2_BACKEND_PORT:-8000}
+    volumes:
+      - ..:/workspace
+      - ${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-../_cache/v2-auditory-learning}/frontend/node_modules:/workspace/v2/frontend/node_modules
+      - ${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-../_cache/v2-auditory-learning}/frontend/npm-cache:/workspace/_cache/v2-auditory-learning/frontend/npm-cache
+    ports:
+      - "${AUDITORY_LEARNING_V2_FRONTEND_PORT:-5174}:5174"
+
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-latest
