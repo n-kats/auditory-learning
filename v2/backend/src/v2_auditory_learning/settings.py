@@ -31,10 +31,7 @@ def normalize_reasoning_effort(value: str | None) -> str:
 data_dir = Path(os.environ.get("AUDITORY_LEARNING_V2_DATA_DIR", str(DEFAULT_DATA_DIR)))
 postgres_dsn = os.environ.get("AUDITORY_LEARNING_V2_POSTGRES_DSN", DEFAULT_POSTGRES_DSN)
 prompt_explain_path = _resolve_repo_path(
-    os.environ.get(
-        "AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH",
-        os.environ.get("AUDITORY_LEARNING_V2_PROMPT_PATH", str(DEFAULT_PROMPT_EXPLAIN_PATH)),
-    )
+    os.environ.get("AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH", str(DEFAULT_PROMPT_EXPLAIN_PATH))
 )
 prompt_speek_path = _resolve_repo_path(
     os.environ.get("AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH", str(DEFAULT_PROMPT_SPEEK_PATH))
