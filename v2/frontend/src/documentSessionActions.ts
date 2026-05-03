@@ -18,7 +18,8 @@ type CommonDeps = {
 
 export async function retryInitDocumentWithBackoff(
   url: string,
-  promptText: string,
+  promptExplainText: string,
+  promptSpeekText: string,
   modelName: string,
 ): Promise<{ request_id: string; page_num: number }> {
   const maxAttempts = 10;
@@ -27,7 +28,7 @@ export async function retryInitDocumentWithBackoff(
 
   while (attempt < maxAttempts) {
     try {
-      const response = await initDocument(url, promptText, modelName);
+      const response = await initDocument(url, promptExplainText, promptSpeekText, modelName);
       return response;
     } catch (error) {
       lastError = error;
@@ -44,11 +45,12 @@ export async function retryInitDocumentWithBackoff(
 
 export async function startDocumentSession(params: {
   trimmedUrl: string;
-  effectivePromptText: string;
+  effectiveExplainPromptText: string;
+  effectiveSpeekPromptText: string;
   effectiveModelName: string;
   deps: CommonDeps;
 }): Promise<void> {
-  const { trimmedUrl, effectivePromptText, effectiveModelName, deps } = params;
+  const { trimmedUrl, effectiveExplainPromptText, effectiveSpeekPromptText, effectiveModelName, deps } = params;
   if (!trimmedUrl.startsWith("http")) {
     deps.dispatchFlowEvent({ type: "start_failed", error: "URL は http または https で始めてください。" });
     return;
@@ -59,7 +61,12 @@ export async function startDocumentSession(params: {
   deps.dispatchFlowEvent({ type: "start_requested", draft_url: trimmedUrl });
 
   try {
-    const response = await retryInitDocumentWithBackoff(trimmedUrl, effectivePromptText, effectiveModelName);
+    const response = await retryInitDocumentWithBackoff(
+      trimmedUrl,
+      effectiveExplainPromptText,
+      effectiveSpeekPromptText,
+      effectiveModelName,
+    );
     deps.dispatchFlowEvent({
       type: "start_succeeded",
       request_id: response.request_id,

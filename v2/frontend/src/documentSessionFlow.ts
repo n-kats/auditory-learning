@@ -25,7 +25,9 @@ export type LoadPageOptions = LoadPageParams;
 
 export async function retryInitDocumentWithBackoff(
   url: string,
-  promptText: string,
+  promptExplainText: string,
+  promptSpeekText: string,
+  modelName: string,
   onRetryReset?: () => void,
 ): Promise<InitResponse> {
   const maxAttempts = 10;
@@ -34,7 +36,7 @@ export async function retryInitDocumentWithBackoff(
 
   while (attempt < maxAttempts) {
     try {
-      const response = await initDocument(url, promptText);
+      const response = await initDocument(url, promptExplainText, promptSpeekText, modelName);
       onRetryReset?.();
       return response;
     } catch (error) {

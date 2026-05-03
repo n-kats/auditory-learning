@@ -10,7 +10,8 @@ export type ExplainResponse = {
 };
 
 export type PromptResponse = {
-  prompt_text: string;
+  prompt_explain_text: string;
+  prompt_speek_text: string;
 };
 
 export type SessionSummary = {
@@ -19,7 +20,9 @@ export type SessionSummary = {
   page_num: number | null;
   current_page: number | null;
   is_favorited: boolean;
-  prompt_text: string;
+  prompt_text?: string;
+  prompt_explain_text: string;
+  prompt_speek_text: string;
   model_name: string;
   total_generation_count: number;
   total_generation_elapsed_ms: number;
@@ -47,6 +50,8 @@ export type SessionSyncEvent =
       current_page: number | null;
       is_favorited: boolean;
       prompt_text?: string;
+      prompt_explain_text?: string;
+      prompt_speek_text?: string;
       model_name?: string;
       total_generation_count?: number;
       total_generation_elapsed_ms?: number;
@@ -165,10 +170,16 @@ async function requestBlob(path: string, payload: unknown): Promise<Blob> {
   return await response.blob();
 }
 
-export async function initDocument(url: string, promptText?: string, modelName?: string): Promise<InitResponse> {
+export async function initDocument(
+  url: string,
+  promptExplainText?: string,
+  promptSpeekText?: string,
+  modelName?: string,
+): Promise<InitResponse> {
   return requestJson<InitResponse>("/init/", {
     url,
-    prompt_text: promptText,
+    prompt_explain_text: promptExplainText,
+    prompt_speek_text: promptSpeekText,
     model_name: modelName,
   });
 }
@@ -214,7 +225,8 @@ export async function toggleFavorite(requestId: string): Promise<{ request_id: s
 export type SessionSettingsResponse = {
   request_id: string;
   source_url: string;
-  prompt_text: string;
+  prompt_explain_text: string;
+  prompt_speek_text: string;
   model_name: string;
 };
 
@@ -224,7 +236,7 @@ export async function fetchSessionSettings(requestId: string): Promise<SessionSe
 
 export async function updateSessionSettings(
   requestId: string,
-  payload: { prompt_text?: string | null; model_name?: string | null },
+  payload: { prompt_explain_text?: string | null; prompt_speek_text?: string | null; model_name?: string | null },
 ): Promise<SessionSettingsResponse> {
   return requestJson<SessionSettingsResponse>(`/sessions/${encodeURIComponent(requestId)}/settings`, payload);
 }

@@ -12,7 +12,8 @@ export function SessionPage({ session }: SessionPageProps) {
       <SessionTopPanel
         mode="session"
         draftUrl={session.draftUrl}
-        draftPromptText={session.draftPromptText}
+        draftExplainPromptText={session.draftExplainPromptText}
+        draftSpeekPromptText={session.draftSpeekPromptText}
         draftModelName={session.draftModelName}
         isBusy={session.isBusy}
         isInitializing={session.isInitializing}
@@ -39,7 +40,8 @@ export function SessionPage({ session }: SessionPageProps) {
         volume={session.volume}
         onAutoAdvanceChange={session.setAutoAdvance}
         onDraftUrlChange={session.setDraftUrl}
-        onDraftPromptTextChange={session.setDraftPromptText}
+        onDraftExplainPromptTextChange={session.setDraftExplainPromptText}
+        onDraftSpeekPromptTextChange={session.setDraftSpeekPromptText}
         onDraftModelNameChange={session.setDraftModelName}
         onJumpPage={session.jumpPage}
         onJumpPageValueChange={session.setJumpPageValue}

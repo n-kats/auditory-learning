@@ -13,7 +13,8 @@ function formatElapsedMs(value: number): string {
 type SessionTopPanelProps = {
   mode?: "start" | "session";
   draftUrl: string;
-  draftPromptText?: string;
+  draftExplainPromptText?: string;
+  draftSpeekPromptText?: string;
   draftModelName?: string;
   isBusy: boolean;
   isInitializing: boolean;
@@ -40,7 +41,8 @@ type SessionTopPanelProps = {
   volume: number;
   onAutoAdvanceChange: (checked: boolean) => void;
   onDraftUrlChange?: (value: string) => void;
-  onDraftPromptTextChange?: (value: string) => void;
+  onDraftExplainPromptTextChange?: (value: string) => void;
+  onDraftSpeekPromptTextChange?: (value: string) => void;
   onDraftModelNameChange?: (value: string) => void;
   onJumpPage: () => void;
   onJumpPageValueChange: (value: string) => void;
@@ -60,7 +62,8 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
   const {
     mode = "start",
     draftUrl,
-    draftPromptText,
+    draftExplainPromptText,
+    draftSpeekPromptText,
     draftModelName,
     isBusy,
     isInitializing,
@@ -87,7 +90,8 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
     volume,
     onAutoAdvanceChange,
     onDraftUrlChange,
-    onDraftPromptTextChange,
+    onDraftExplainPromptTextChange,
+    onDraftSpeekPromptTextChange,
     onDraftModelNameChange,
     onJumpPage,
     onJumpPageValueChange,
@@ -131,15 +135,26 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
             </div>
           </div>
           <div className="session-settings-divider" />
-          <label className="field prompt-field">
-            <span>プロンプト</span>
-            <textarea
-              value={draftPromptText ?? ""}
-              onChange={(event) => onDraftPromptTextChange?.(event.currentTarget.value)}
-              rows={10}
-              spellCheck={false}
-            />
-          </label>
+          <div className="session-prompt-grid">
+            <label className="field prompt-field">
+              <span>解説用プロンプト</span>
+              <textarea
+                value={draftExplainPromptText ?? ""}
+                onChange={(event) => onDraftExplainPromptTextChange?.(event.currentTarget.value)}
+                rows={10}
+                spellCheck={false}
+              />
+            </label>
+            <label className="field prompt-field">
+              <span>読み上げ用プロンプト</span>
+              <textarea
+                value={draftSpeekPromptText ?? ""}
+                onChange={(event) => onDraftSpeekPromptTextChange?.(event.currentTarget.value)}
+                rows={10}
+                spellCheck={false}
+              />
+            </label>
+          </div>
           <label className="field model-field">
             <span>モデル</span>
             <input

@@ -668,6 +668,12 @@ img {
   gap: 12px;
 }
 
+.session-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .session-stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -708,6 +714,12 @@ img {
 
 .model-field {
   gap: 8px;
+}
+
+@media (max-width: 860px) {
+  .session-prompt-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .model-field input {

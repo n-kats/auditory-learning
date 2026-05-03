@@ -50,7 +50,8 @@ type LoadPageOptions = {
 
 export type DocumentSessionState = {
   draftUrl: string;
-  draftPromptText: string;
+  draftExplainPromptText: string;
+  draftSpeekPromptText: string;
   draftModelName: string;
   sourceUrl: string;
   requestId: string | null;
@@ -101,7 +102,8 @@ export type DocumentSessionActions = {
   audioRef: RefObject<HTMLAudioElement | null>;
   workspaceGridRef: RefObject<HTMLElement | null>;
   setDraftUrl: (value: string) => void;
-  setDraftPromptText: (value: string) => void;
+  setDraftExplainPromptText: (value: string) => void;
+  setDraftSpeekPromptText: (value: string) => void;
   setDraftModelName: (value: string) => void;
   setAutoAdvance: (value: boolean) => void;
   setJumpPageValue: (value: string) => void;
@@ -132,7 +134,14 @@ export function useDocumentSession(): UseDocumentSessionResult {
   const [mobileWorkspaceTab, setMobileWorkspaceTab] = useState<"explanation" | "preview">("explanation");
   const [isSavingSessionSettings, setIsSavingSessionSettings] = useState(false);
   const sessionSyncRef = useRef<DocumentSessionSyncState>(createDocumentSessionSyncState());
-  const { defaultPromptText, draftPromptText, setDraftPromptText } = usePromptTemplate();
+  const {
+    defaultExplainPromptText,
+    defaultSpeekPromptText,
+    draftExplainPromptText,
+    draftSpeekPromptText,
+    setDraftExplainPromptText,
+    setDraftSpeekPromptText,
+  } = usePromptTemplate();
   const {
     isMobileWorkspace,
     workspaceGridRef,
@@ -160,11 +169,15 @@ export function useDocumentSession(): UseDocumentSessionResult {
     setFlowState((current) => {
       const next = applyDocumentSessionFlowEvent(current, event);
       if (next !== current) {
+        const previousSyncState = sessionSyncRef.current;
         sessionSyncRef.current = {
           requestId: next.requestId,
           currentPage: next.currentPage,
           maxPage: next.maxPage,
           isFavorited: next.isFavorited,
+          promptExplainText: previousSyncState.promptExplainText,
+          promptSpeekText: previousSyncState.promptSpeekText,
+          modelName: previousSyncState.modelName,
           totalGenerationCount: next.totalGenerationCount,
           totalGenerationElapsedMs: next.totalGenerationElapsedMs,
           totalInputTokens: next.totalInputTokens,
@@ -271,7 +284,8 @@ export function useDocumentSession(): UseDocumentSessionResult {
         if (canceled) {
           return;
         }
-        setDraftPromptText(settings.prompt_text);
+        setDraftExplainPromptText(settings.prompt_explain_text);
+        setDraftSpeekPromptText(settings.prompt_speek_text);
         setDraftModelName(settings.model_name);
       } catch {
         // ignore settings fetch errors for now
@@ -335,8 +349,11 @@ export function useDocumentSession(): UseDocumentSessionResult {
               totalCostUsd: nextState.totalCostUsd,
             };
           });
-          if ("prompt_text" in message && typeof message.prompt_text === "string") {
-            setDraftPromptText(message.prompt_text);
+          if ("prompt_explain_text" in message && typeof message.prompt_explain_text === "string") {
+            setDraftExplainPromptText(message.prompt_explain_text);
+          }
+          if ("prompt_speek_text" in message && typeof message.prompt_speek_text === "string") {
+            setDraftSpeekPromptText(message.prompt_speek_text);
           }
           if ("model_name" in message && typeof message.model_name === "string") {
             setDraftModelName(message.model_name);
@@ -399,10 +416,14 @@ export function useDocumentSession(): UseDocumentSessionResult {
   const handleStart = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedUrl = draftUrl.trim();
-    const effectivePromptText = draftPromptText.trim().length > 0 ? draftPromptText : defaultPromptText;
+    const effectiveExplainPromptText =
+      draftExplainPromptText.trim().length > 0 ? draftExplainPromptText : defaultExplainPromptText;
+    const effectiveSpeekPromptText =
+      draftSpeekPromptText.trim().length > 0 ? draftSpeekPromptText : defaultSpeekPromptText;
     await startDocumentSession({
       trimmedUrl,
-      effectivePromptText,
+      effectiveExplainPromptText,
+      effectiveSpeekPromptText,
       effectiveModelName: draftModelName.trim() || "gpt-5.4-mini",
       deps: documentSessionDeps,
     });
@@ -466,10 +487,12 @@ export function useDocumentSession(): UseDocumentSessionResult {
     setIsSavingSessionSettings(true);
     try {
       const response = await updateSessionSettings(requestId, {
-        prompt_text: draftPromptText,
+        prompt_explain_text: draftExplainPromptText,
+        prompt_speek_text: draftSpeekPromptText,
         model_name: draftModelName,
       });
-      setDraftPromptText(response.prompt_text);
+      setDraftExplainPromptText(response.prompt_explain_text);
+      setDraftSpeekPromptText(response.prompt_speek_text);
       setDraftModelName(response.model_name);
     } finally {
       setIsSavingSessionSettings(false);
@@ -480,7 +503,8 @@ export function useDocumentSession(): UseDocumentSessionResult {
     audioRef,
     workspaceGridRef,
     draftUrl,
-    draftPromptText,
+    draftExplainPromptText,
+    draftSpeekPromptText,
     draftModelName,
     sourceUrl,
     requestId,
@@ -528,7 +552,8 @@ export function useDocumentSession(): UseDocumentSessionResult {
     onPreviewWheel,
     onPreviewPointerDown,
     setDraftUrl,
-    setDraftPromptText,
+    setDraftExplainPromptText,
+    setDraftSpeekPromptText,
     setDraftModelName,
     setAutoAdvance,
     setJumpPageValue,

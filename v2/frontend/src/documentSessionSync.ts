@@ -5,6 +5,9 @@ export type DocumentSessionSyncState = {
   currentPage: number;
   maxPage: number;
   isFavorited: boolean;
+  promptExplainText: string;
+  promptSpeekText: string;
+  modelName: string;
   totalGenerationCount: number;
   totalGenerationElapsedMs: number;
   totalInputTokens: number;
@@ -18,6 +21,9 @@ export function createDocumentSessionSyncState(params?: Partial<DocumentSessionS
     currentPage: params?.currentPage ?? 1,
     maxPage: params?.maxPage ?? 1,
     isFavorited: params?.isFavorited ?? false,
+    promptExplainText: params?.promptExplainText ?? "",
+    promptSpeekText: params?.promptSpeekText ?? "",
+    modelName: params?.modelName ?? "",
     totalGenerationCount: params?.totalGenerationCount ?? 0,
     totalGenerationElapsedMs: params?.totalGenerationElapsedMs ?? 0,
     totalInputTokens: params?.totalInputTokens ?? 0,
@@ -40,6 +46,9 @@ export function applyDocumentSessionSyncEvent(
       currentPage: event.current_page ?? state.currentPage,
       maxPage: event.page_num ?? state.maxPage,
       isFavorited: event.is_favorited,
+      promptExplainText: event.prompt_explain_text ?? state.promptExplainText,
+      promptSpeekText: event.prompt_speek_text ?? state.promptSpeekText,
+      modelName: event.model_name ?? state.modelName,
       totalGenerationCount: event.total_generation_count ?? state.totalGenerationCount,
       totalGenerationElapsedMs: event.total_generation_elapsed_ms ?? state.totalGenerationElapsedMs,
       totalInputTokens: event.total_input_tokens ?? state.totalInputTokens,
@@ -50,6 +59,9 @@ export function applyDocumentSessionSyncEvent(
       nextState.currentPage === state.currentPage &&
       nextState.maxPage === state.maxPage &&
       nextState.isFavorited === state.isFavorited &&
+      nextState.promptExplainText === state.promptExplainText &&
+      nextState.promptSpeekText === state.promptSpeekText &&
+      nextState.modelName === state.modelName &&
       nextState.totalGenerationCount === state.totalGenerationCount &&
       nextState.totalGenerationElapsedMs === state.totalGenerationElapsedMs &&
       nextState.totalInputTokens === state.totalInputTokens &&

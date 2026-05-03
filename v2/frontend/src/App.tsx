@@ -121,7 +121,8 @@ export default function App() {
           <StartPage
             draftUrl={session.draftUrl}
             currentSessionId={session.requestId}
-            promptText={session.draftPromptText}
+            draftExplainPromptText={session.draftExplainPromptText}
+            draftSpeekPromptText={session.draftSpeekPromptText}
             modelName={session.draftModelName}
             sessions={directory.sessions}
             isInitializing={session.isInitializing}
@@ -131,7 +132,8 @@ export default function App() {
               void handleResumeDocument(snapshot);
             }}
             onDraftUrlChange={session.setDraftUrl}
-            onPromptTextChange={session.setDraftPromptText}
+            onDraftExplainPromptTextChange={session.setDraftExplainPromptText}
+            onDraftSpeekPromptTextChange={session.setDraftSpeekPromptText}
             onModelNameChange={session.setDraftModelName}
             onSubmit={(event) => {
               void handleStartDocument(event);

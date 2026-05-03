@@ -130,9 +130,10 @@
 - result は document の処理結果であり、同時に session にも属する。
 - URL と document の対応は DB に寄せる。
 - 説明文は result として DB に寄せる。
-- document ごとのプロンプトは session が使う既定値の候補として DB に寄せる。
-- session ごとの prompt / model 設定は DB に寄せる。
-- 既定のプロンプトは `AUDITORY_LEARNING_V2_PROMPT_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
+- document ごとの既定プロンプトは `prompt_explain.txt` と `prompt_speek.txt` の 2 系統に分ける。
+- 解説用プロンプトは `AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
+- 読み上げ用プロンプトは `AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
+- session ごとの prompt / model 設定は DB に寄せる。解説用プロンプトと読み上げ用プロンプトは別々に保持する。
 - 既定のモデル名は `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` で与える。既定値は `gpt-5.4-mini` とする。
 - 既定の reasoning effort は `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` で与える。設定値は `middle` を受け取り、OpenAI へ渡す値は `medium` に正規化する。
 - 生成物は `_data` / `_cache` に置く。
@@ -144,7 +145,7 @@
 - `sessions` には少なくとも `current_page` と `page_num` を持たせ、一覧と snapshot から続き位置を復元できるようにする。
 - `GET /sessions/` は一覧、`GET /sessions/{request_id}` は snapshot として扱う。
 - `GET /favorites/` は favorite 一覧、`POST /favorites/{request_id}/toggle` は favorite 切り替えとして扱う。
-- `GET /sessions/{request_id}/settings` と `PATCH /sessions/{request_id}/settings` で prompt / model を読む・更新する。
+- `GET /sessions/{request_id}/settings` と `PATCH /sessions/{request_id}/settings` で解説用プロンプト、読み上げ用プロンプト、model を読む・更新する。
 - `POST /sessions/{request_id}/favorite` は favorite toggle の session 版エイリアスとして扱う。
 - `session_results` は session ごとの処理結果の最新状態を持つ。1 つの result は 1 つの paper と 1 つの session に属する。
 - `session_usage_records` は生成ごとの利用情報を持つ。result は上書きしても usage は上書きせず、常に追加する。

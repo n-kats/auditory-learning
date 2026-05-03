@@ -55,6 +55,8 @@ class Repository:
                       paper_id TEXT NOT NULL REFERENCES papers(paper_id) ON DELETE CASCADE,
                       current_page INTEGER NOT NULL DEFAULT 1,
                       prompt_text TEXT NOT NULL DEFAULT '',
+                      prompt_explain_text TEXT NOT NULL DEFAULT '',
+                      prompt_speek_text TEXT NOT NULL DEFAULT '',
                       model_name TEXT NOT NULL DEFAULT 'gpt-5.4-mini',
                       total_generation_count INTEGER NOT NULL DEFAULT 0,
                       total_generation_elapsed_ms INTEGER NOT NULL DEFAULT 0,
@@ -74,13 +76,16 @@ class Repository:
                       session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
                       page_num INTEGER NOT NULL,
                       prompt_text TEXT NOT NULL DEFAULT '',
+                      prompt_explain_text TEXT NOT NULL DEFAULT '',
+                      prompt_speek_text TEXT NOT NULL DEFAULT '',
                       model_name TEXT NOT NULL DEFAULT 'gpt-5.4-mini',
                       explanation TEXT NOT NULL,
+                      speech_text TEXT NOT NULL DEFAULT '',
                       audio_status TEXT NOT NULL DEFAULT 'ready',
                       audio_error TEXT,
                       created_at TIMESTAMPTZ NOT NULL,
                       updated_at TIMESTAMPTZ NOT NULL,
-                      UNIQUE (session_id, page_num, prompt_text, model_name)
+                      UNIQUE (session_id, page_num, prompt_explain_text, prompt_speek_text, model_name)
                     )
                     """
                 )
@@ -121,6 +126,18 @@ class Repository:
                 cursor.execute(
                     """
                     ALTER TABLE sessions
+                    ADD COLUMN IF NOT EXISTS prompt_explain_text TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE sessions
+                    ADD COLUMN IF NOT EXISTS prompt_speek_text TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE sessions
                     ADD COLUMN IF NOT EXISTS total_generation_elapsed_ms INTEGER NOT NULL DEFAULT 0
                     """
                 )
@@ -140,6 +157,24 @@ class Repository:
                     """
                     ALTER TABLE sessions
                     ADD COLUMN IF NOT EXISTS total_cost_usd NUMERIC(18, 6) NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE session_results
+                    ADD COLUMN IF NOT EXISTS prompt_explain_text TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE session_results
+                    ADD COLUMN IF NOT EXISTS prompt_speek_text TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE session_results
+                    ADD COLUMN IF NOT EXISTS speech_text TEXT NOT NULL DEFAULT ''
                     """
                 )
             connection.commit()
@@ -178,7 +213,8 @@ class Repository:
         paper_id: str,
         page_num: int,
         current_page: int = 1,
-        prompt_text: str = "",
+        prompt_explain_text: str = "",
+        prompt_speek_text: str = "",
         model_name: str = DEFAULT_MODEL_NAME,
     ) -> None:
         now = _utc_now()
@@ -191,6 +227,8 @@ class Repository:
                       paper_id,
                       current_page,
                       prompt_text,
+                      prompt_explain_text,
+                      prompt_speek_text,
                       model_name,
                       total_generation_count,
                       total_generation_elapsed_ms,
@@ -200,16 +238,33 @@ class Repository:
                       created_at,
                       updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, 0, 0, 0, 0, 0, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (session_id)
                     DO UPDATE SET
                       paper_id = EXCLUDED.paper_id,
                       current_page = EXCLUDED.current_page,
-                      prompt_text = EXCLUDED.prompt_text,
+                      prompt_text = EXCLUDED.prompt_explain_text,
+                      prompt_explain_text = EXCLUDED.prompt_explain_text,
+                      prompt_speek_text = EXCLUDED.prompt_speek_text,
                       model_name = EXCLUDED.model_name,
                       updated_at = EXCLUDED.updated_at
                     """,
-                    (session_id, paper_id, current_page, prompt_text, model_name, now, now),
+                    (
+                        session_id,
+                        paper_id,
+                        current_page,
+                        prompt_explain_text,
+                        prompt_explain_text,
+                        prompt_speek_text,
+                        model_name,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        now,
+                        now,
+                    ),
                 )
             connection.commit()
 
@@ -219,7 +274,8 @@ class Repository:
         source_url: str,
         page_num: int,
         current_page: int = 1,
-        prompt_text: str = "",
+        prompt_explain_text: str = "",
+        prompt_speek_text: str = "",
         model_name: str = DEFAULT_MODEL_NAME,
     ) -> None:
         paper_id = self._upsert_paper(source_url, page_num)
@@ -228,7 +284,8 @@ class Repository:
             paper_id,
             page_num,
             current_page=current_page,
-            prompt_text=prompt_text,
+            prompt_explain_text=prompt_explain_text,
+            prompt_speek_text=prompt_speek_text,
             model_name=model_name,
         )
 
@@ -244,6 +301,8 @@ class Repository:
                       p.page_num,
                       s.current_page,
                       s.prompt_text,
+                      s.prompt_explain_text,
+                      s.prompt_speek_text,
                       s.model_name,
                       s.total_generation_count,
                       s.total_generation_elapsed_ms,
@@ -268,14 +327,16 @@ class Repository:
             "page_num": row[3],
             "current_page": row[4],
             "prompt_text": str(row[5]),
-            "model_name": str(row[6]),
-            "total_generation_count": row[7],
-            "total_generation_elapsed_ms": row[8],
-            "total_input_tokens": row[9],
-            "total_output_tokens": row[10],
-            "total_cost_usd": float(row[11]),
-            "created_at": row[12],
-            "updated_at": row[13],
+            "prompt_explain_text": str(row[6]),
+            "prompt_speek_text": str(row[7]),
+            "model_name": str(row[8]),
+            "total_generation_count": row[9],
+            "total_generation_elapsed_ms": row[10],
+            "total_input_tokens": row[11],
+            "total_output_tokens": row[12],
+            "total_cost_usd": float(row[13]),
+            "created_at": row[14],
+            "updated_at": row[15],
         }
 
     def update_current_page(self, request_id: str, current_page: int) -> None:
@@ -303,6 +364,8 @@ class Repository:
             "page_num": row["page_num"],
             "current_page": row["current_page"],
             "prompt_text": row["prompt_text"],
+            "prompt_explain_text": row["prompt_explain_text"],
+            "prompt_speek_text": row["prompt_speek_text"],
             "model_name": row["model_name"],
             "total_generation_count": row["total_generation_count"],
             "total_generation_elapsed_ms": row["total_generation_elapsed_ms"],
@@ -325,6 +388,8 @@ class Repository:
                       p.page_num,
                       s.current_page,
                       s.prompt_text,
+                      s.prompt_explain_text,
+                      s.prompt_speek_text,
                       s.model_name,
                       s.total_generation_count,
                       s.total_generation_elapsed_ms,
@@ -349,14 +414,16 @@ class Repository:
                 "page_num": row[3],
                 "current_page": row[4],
                 "prompt_text": str(row[5]),
-                "model_name": str(row[6]),
-                "total_generation_count": row[7],
-                "total_generation_elapsed_ms": row[8],
-                "total_input_tokens": row[9],
-                "total_output_tokens": row[10],
-                "total_cost_usd": float(row[11]),
-                "created_at": row[12],
-                "updated_at": row[13],
+                "prompt_explain_text": str(row[6]),
+                "prompt_speek_text": str(row[7]),
+                "model_name": str(row[8]),
+                "total_generation_count": row[9],
+                "total_generation_elapsed_ms": row[10],
+                "total_input_tokens": row[11],
+                "total_output_tokens": row[12],
+                "total_cost_usd": float(row[13]),
+                "created_at": row[14],
+                "updated_at": row[15],
             }
             for row in rows
         ]
@@ -365,14 +432,16 @@ class Repository:
         self,
         request_id: str,
         *,
-        prompt_text: str | None = None,
+        prompt_explain_text: str | None = None,
+        prompt_speek_text: str | None = None,
         model_name: str | None = None,
     ) -> dict[str, object] | None:
         current = self.get_document(request_id)
         if current is None:
             return None
 
-        next_prompt_text = current["prompt_text"] if prompt_text is None else prompt_text
+        next_prompt_explain_text = current["prompt_explain_text"] if prompt_explain_text is None else prompt_explain_text
+        next_prompt_speek_text = current["prompt_speek_text"] if prompt_speek_text is None else prompt_speek_text
         next_model_name = current["model_name"] if model_name is None else model_name
         now = _utc_now()
         with self._lock, self._connect() as connection:
@@ -380,10 +449,10 @@ class Repository:
                 cursor.execute(
                     """
                     UPDATE sessions
-                    SET prompt_text = %s, model_name = %s, updated_at = %s
+                    SET prompt_text = %s, prompt_explain_text = %s, prompt_speek_text = %s, model_name = %s, updated_at = %s
                     WHERE session_id = %s
                     """,
-                    (next_prompt_text, next_model_name, now, request_id),
+                    (next_prompt_explain_text, next_prompt_explain_text, next_prompt_speek_text, next_model_name, now, request_id),
                 )
             connection.commit()
         return self.get_document(request_id)
@@ -537,6 +606,8 @@ class Repository:
                       p.page_num,
                       s.current_page,
                       s.prompt_text,
+                      s.prompt_explain_text,
+                      s.prompt_speek_text,
                       s.model_name,
                       s.total_generation_count,
                       s.total_generation_elapsed_ms,
@@ -562,14 +633,16 @@ class Repository:
                 "page_num": row[3],
                 "current_page": row[4],
                 "prompt_text": str(row[5]),
-                "model_name": str(row[6]),
-                "total_generation_count": row[7],
-                "total_generation_elapsed_ms": row[8],
-                "total_input_tokens": row[9],
-                "total_output_tokens": row[10],
-                "total_cost_usd": float(row[11]),
-                "created_at": row[12],
-                "updated_at": row[13],
+                "prompt_explain_text": str(row[6]),
+                "prompt_speek_text": str(row[7]),
+                "model_name": str(row[8]),
+                "total_generation_count": row[9],
+                "total_generation_elapsed_ms": row[10],
+                "total_input_tokens": row[11],
+                "total_output_tokens": row[12],
+                "total_cost_usd": float(row[13]),
+                "created_at": row[14],
+                "updated_at": row[15],
                 "is_favorited": True,
             }
             for row in rows
@@ -581,7 +654,9 @@ class Repository:
         page_num: int,
         explanation: str,
         *,
-        prompt_text: str = "",
+        speech_text: str = "",
+        prompt_explain_text: str = "",
+        prompt_speek_text: str = "",
         model_name: str = DEFAULT_MODEL_NAME,
         audio_status: str = "ready",
         audio_error: str | None = None,
@@ -597,12 +672,13 @@ class Repository:
                 cursor.execute(
                     """
                     INSERT INTO session_results (
-                      result_id, paper_id, session_id, page_num, prompt_text, model_name, explanation, audio_status, audio_error, created_at, updated_at
+                      result_id, paper_id, session_id, page_num, prompt_text, prompt_explain_text, prompt_speek_text, model_name, explanation, speech_text, audio_status, audio_error, created_at, updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (session_id, page_num, prompt_text, model_name)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (session_id, page_num, prompt_explain_text, prompt_speek_text, model_name)
                     DO UPDATE SET
                       explanation = EXCLUDED.explanation,
+                      speech_text = EXCLUDED.speech_text,
                       audio_status = EXCLUDED.audio_status,
                       audio_error = EXCLUDED.audio_error,
                       updated_at = EXCLUDED.updated_at
@@ -613,9 +689,12 @@ class Repository:
                         current["paper_id"],
                         request_id,
                         page_num,
-                        prompt_text,
+                        prompt_explain_text,
+                        prompt_explain_text,
+                        prompt_speek_text,
                         model_name,
                         explanation,
+                        speech_text,
                         audio_status,
                         audio_error,
                         now,
@@ -629,9 +708,12 @@ class Repository:
             "request_id": request_id,
             "paper_id": current["paper_id"],
             "page_num": page_num,
-            "prompt_text": prompt_text,
+            "prompt_text": prompt_explain_text,
+            "prompt_explain_text": prompt_explain_text,
+            "prompt_speek_text": prompt_speek_text,
             "model_name": model_name,
             "explanation": explanation,
+            "speech_text": speech_text,
             "audio_status": audio_status,
             "audio_error": audio_error,
             "created_at": now,
@@ -643,7 +725,8 @@ class Repository:
         request_id: str,
         page_num: int,
         *,
-        prompt_text: str = "",
+        prompt_explain_text: str = "",
+        prompt_speek_text: str = "",
         model_name: str = DEFAULT_MODEL_NAME,
     ) -> dict[str, object] | None:
         with self._connect() as connection:
@@ -656,16 +739,19 @@ class Repository:
                       session_id,
                       page_num,
                       prompt_text,
+                      prompt_explain_text,
+                      prompt_speek_text,
                       model_name,
                       explanation,
+                      speech_text,
                       audio_status,
                       audio_error,
                       created_at,
                       updated_at
                     FROM session_results
-                    WHERE session_id = %s AND page_num = %s AND prompt_text = %s AND model_name = %s
+                    WHERE session_id = %s AND page_num = %s AND prompt_explain_text = %s AND prompt_speek_text = %s AND model_name = %s
                     """,
-                    (request_id, page_num, prompt_text, model_name),
+                    (request_id, page_num, prompt_explain_text, prompt_speek_text, model_name),
                 )
                 row = cursor.fetchone()
         if row is None:
@@ -676,10 +762,13 @@ class Repository:
             "request_id": str(row[2]),
             "page_num": row[3],
             "prompt_text": str(row[4]),
-            "model_name": str(row[5]),
-            "explanation": str(row[6]),
-            "audio_status": str(row[7]),
-            "audio_error": row[8],
-            "created_at": row[9],
-            "updated_at": row[10],
+            "prompt_explain_text": str(row[5]),
+            "prompt_speek_text": str(row[6]),
+            "model_name": str(row[7]),
+            "explanation": str(row[8]),
+            "speech_text": str(row[9]),
+            "audio_status": str(row[10]),
+            "audio_error": row[11],
+            "created_at": row[12],
+            "updated_at": row[13],
         }

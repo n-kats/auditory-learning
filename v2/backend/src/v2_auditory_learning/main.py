@@ -28,7 +28,8 @@ from v2_auditory_learning.settings import (
     frontend_url,
     default_model_name,
     postgres_dsn,
-    prompt_path,
+    prompt_explain_path,
+    prompt_speek_path,
     requested_voicevox_url,
     voicevox_url,
 )
@@ -87,7 +88,8 @@ def wait_for_database_ready(timeout_seconds: int = 120) -> None:
 
 class InitRequest(BaseModel):
     url: str
-    prompt_text: str | None = None
+    prompt_explain_text: str | None = None
+    prompt_speek_text: str | None = None
     model_name: str | None = None
 
 
@@ -102,7 +104,8 @@ class SessionSummary(BaseModel):
     page_num: int | None = None
     current_page: int | None = None
     is_favorited: bool = False
-    prompt_text: str = ""
+    prompt_explain_text: str = ""
+    prompt_speek_text: str = ""
     model_name: str = default_model_name
     total_generation_count: int = 0
     total_generation_elapsed_ms: int = 0
@@ -119,7 +122,8 @@ class SessionSnapshot(BaseModel):
     page_num: int | None = None
     current_page: int | None = None
     is_favorited: bool = False
-    prompt_text: str = ""
+    prompt_explain_text: str = ""
+    prompt_speek_text: str = ""
     model_name: str = default_model_name
     total_generation_count: int = 0
     total_generation_elapsed_ms: int = 0
@@ -146,31 +150,46 @@ class FavoriteListResponse(BaseModel):
 
 
 class PromptResponse(BaseModel):
-    prompt_text: str
+    prompt_explain_text: str
+    prompt_speek_text: str
 
 
 class SessionSettingsResponse(BaseModel):
     request_id: str
     source_url: str
-    prompt_text: str
+    prompt_explain_text: str
+    prompt_speek_text: str
     model_name: str
 
 
 class SessionSettingsRequest(BaseModel):
-    prompt_text: str | None = None
+    prompt_explain_text: str | None = None
+    prompt_speek_text: str | None = None
     model_name: str | None = None
 
 
-def load_default_prompt_text() -> str:
-    return prompt_path.read_text().strip()
+def load_default_prompt_explain_text() -> str:
+    return prompt_explain_path.read_text().strip()
 
 
-def resolve_document_prompt_text(request_id: str) -> str:
+def load_default_prompt_speek_text() -> str:
+    return prompt_speek_path.read_text().strip()
+
+
+def resolve_document_prompt_explain_text(request_id: str) -> str:
     row = get_repository().get_document(request_id)
     if row is None:
-        return load_default_prompt_text()
-    prompt_text = str(row.get("prompt_text") or "").strip()
-    return prompt_text if prompt_text else load_default_prompt_text()
+        return load_default_prompt_explain_text()
+    prompt_text = str(row.get("prompt_explain_text") or row.get("prompt_text") or "").strip()
+    return prompt_text if prompt_text else load_default_prompt_explain_text()
+
+
+def resolve_document_prompt_speek_text(request_id: str) -> str:
+    row = get_repository().get_document(request_id)
+    if row is None:
+        return load_default_prompt_speek_text()
+    prompt_text = str(row.get("prompt_speek_text") or "").strip()
+    return prompt_text if prompt_text else load_default_prompt_speek_text()
 
 
 def resolve_document_model_name(request_id: str) -> str:
@@ -185,6 +204,7 @@ def record_session_result(
     request_id: str,
     page: int,
     explanation: str,
+    speech_text: str,
     *,
     audio_status: Literal["ready", "failed"] = "ready",
     audio_error: str | None = None,
@@ -196,7 +216,9 @@ def record_session_result(
         request_id,
         page,
         explanation,
-        prompt_text=resolve_document_prompt_text(request_id),
+        speech_text=speech_text,
+        prompt_explain_text=resolve_document_prompt_explain_text(request_id),
+        prompt_speek_text=resolve_document_prompt_speek_text(request_id),
         model_name=resolve_document_model_name(request_id),
         audio_status=audio_status,
         audio_error=audio_error,
@@ -208,6 +230,7 @@ def record_session_usage(
     page: int,
     *,
     result_id: str | None,
+    kind: str,
     elapsed_ms: int,
     input_tokens: int | None,
     output_tokens: int | None,
@@ -224,7 +247,7 @@ def record_session_usage(
         request_id,
         paper_id=str(current["paper_id"]),
         result_id=result_id,
-        kind="explanation",
+        kind=kind,
         page_num=page,
         prompt_text=prompt_text,
         model_name=model_name,
@@ -244,7 +267,8 @@ def build_session_summary(row: dict[str, object]) -> SessionSummary:
         page_num=row["page_num"],
         current_page=row["current_page"],
         is_favorited=bool(row.get("is_favorited", False)),
-        prompt_text=str(row.get("prompt_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
+        prompt_speek_text=str(row.get("prompt_speek_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
         total_generation_count=int(row.get("total_generation_count", 0) or 0),
         total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
@@ -264,7 +288,8 @@ def build_session_snapshot(row: dict[str, object]) -> SessionSnapshot:
         page_num=row["page_num"],
         current_page=row["current_page"],
         is_favorited=bool(row.get("is_favorited", False)),
-        prompt_text=str(row.get("prompt_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
+        prompt_speek_text=str(row.get("prompt_speek_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
         total_generation_count=int(row.get("total_generation_count", 0) or 0),
         total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
@@ -285,6 +310,8 @@ def broadcast_session_snapshot(request_id: str) -> None:
             request_id=request_id,
             current_page=row.get("current_page"),
             is_favorited=bool(getattr(get_repository(), "is_favorited", lambda _request_id: False)(request_id)),
+            prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
+            prompt_speek_text=str(row.get("prompt_speek_text", "")),
             total_generation_count=int(row.get("total_generation_count", 0) or 0),
             total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
             total_input_tokens=int(row.get("total_input_tokens", 0) or 0),
@@ -295,6 +322,8 @@ def broadcast_session_snapshot(request_id: str) -> None:
     payload["source_url"] = row.get("source_url", "")
     payload["page_num"] = row.get("page_num")
     payload["prompt_text"] = row.get("prompt_text", "")
+    payload["prompt_explain_text"] = row.get("prompt_explain_text", row.get("prompt_text", ""))
+    payload["prompt_speek_text"] = row.get("prompt_speek_text", "")
     payload["model_name"] = row.get("model_name", default_model_name)
     payload["total_generation_count"] = row.get("total_generation_count", 0)
     payload["total_generation_elapsed_ms"] = row.get("total_generation_elapsed_ms", 0)
@@ -350,7 +379,10 @@ def broadcast_generation_finished(request_id: str, page_num: int) -> None:
 
 @app.get("/prompt/default")
 def prompt_default() -> PromptResponse:
-    return PromptResponse(prompt_text=load_default_prompt_text())
+    return PromptResponse(
+        prompt_explain_text=load_default_prompt_explain_text(),
+        prompt_speek_text=load_default_prompt_speek_text(),
+    )
 
 
 @app.post("/init/")
@@ -368,14 +400,20 @@ def init(req: InitRequest) -> InitResponse:
     for i, page in enumerate(pages, start=1):
         if not (image_dir / f"{i:04d}.png").exists():
             page.save(image_dir / f"{i:04d}.png")
-    prompt_text = req.prompt_text.strip() if req.prompt_text and req.prompt_text.strip() else load_default_prompt_text()
+    prompt_explain_text = (
+        req.prompt_explain_text.strip() if req.prompt_explain_text and req.prompt_explain_text.strip() else load_default_prompt_explain_text()
+    )
+    prompt_speek_text = (
+        req.prompt_speek_text.strip() if req.prompt_speek_text and req.prompt_speek_text.strip() else load_default_prompt_speek_text()
+    )
     model_name = req.model_name.strip() if req.model_name and req.model_name.strip() else default_model_name
     get_repository().upsert_document(
         request_id,
         req.url,
         len(pages),
         current_page=1,
-        prompt_text=prompt_text,
+        prompt_explain_text=prompt_explain_text,
+        prompt_speek_text=prompt_speek_text,
         model_name=model_name,
     )
     broadcast_session_snapshot(request_id)
@@ -413,7 +451,8 @@ def session_settings(request_id: str) -> SessionSettingsResponse:
     return SessionSettingsResponse(
         request_id=request_id,
         source_url=str(row["source_url"]),
-        prompt_text=str(row.get("prompt_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
+        prompt_speek_text=str(row.get("prompt_speek_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
     )
 
@@ -422,14 +461,15 @@ def session_settings(request_id: str) -> SessionSettingsResponse:
 def update_session_settings(request_id: str, req: SessionSettingsRequest) -> SessionSettingsResponse:
     row = get_repository().update_session_settings(
         request_id,
-        prompt_text=req.prompt_text,
+        prompt_explain_text=req.prompt_explain_text,
+        prompt_speek_text=req.prompt_speek_text,
         model_name=req.model_name,
     )
     if row is None:
         raise fastapi.HTTPException(status_code=404, detail="session not found")
     broadcast_session_snapshot(request_id)
     cache_dir = data_dir / request_id
-    for pattern in ("explain_*.txt", "explain_*.mp3"):
+    for pattern in ("explain_*.txt", "explain_*.mp3", "speak_*.txt"):
         for file_path in cache_dir.glob(pattern):
             try:
                 file_path.unlink()
@@ -438,7 +478,8 @@ def update_session_settings(request_id: str, req: SessionSettingsRequest) -> Ses
     return SessionSettingsResponse(
         request_id=request_id,
         source_url=str(row["source_url"]),
-        prompt_text=str(row.get("prompt_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
+        prompt_speek_text=str(row.get("prompt_speek_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
     )
 
@@ -494,6 +535,8 @@ async def session_ws(websocket: WebSocket) -> None:
                 "current_page": snapshot_row.get("current_page"),
                 "is_favorited": repository.is_favorited(request_id),
                 "prompt_text": snapshot_row.get("prompt_text", ""),
+                "prompt_explain_text": snapshot_row.get("prompt_explain_text", snapshot_row.get("prompt_text", "")),
+                "prompt_speek_text": snapshot_row.get("prompt_speek_text", ""),
                 "model_name": snapshot_row.get("model_name", default_model_name),
                 "total_generation_count": snapshot_row.get("total_generation_count", 0),
                 "total_generation_elapsed_ms": snapshot_row.get("total_generation_elapsed_ms", 0),
@@ -545,6 +588,7 @@ class ExplainResponse(BaseModel):
 
 class GenerationResult(BaseModel):
     explanation: str
+    speech_text: str = ""
     audio_status: Literal["ready", "failed"] = "ready"
     audio_error: str | None = None
 
@@ -572,7 +616,14 @@ def explain(req: ExplainRequest) -> ExplainResponse:
     explanation = generation_result.explanation
     audio_status = generation_result.audio_status
     audio_error = generation_result.audio_error
-    record_session_result(req.request_id, req.page, explanation, audio_status=audio_status, audio_error=audio_error)
+    record_session_result(
+        req.request_id,
+        req.page,
+        explanation,
+        generation_result.speech_text,
+        audio_status=audio_status,
+        audio_error=audio_error,
+    )
     get_repository().update_current_page(req.request_id, req.page)
     broadcast_session_page_updated(req.request_id, req.page)
 
@@ -590,7 +641,7 @@ def explain(req: ExplainRequest) -> ExplainResponse:
     return ExplainResponse(explanation=explanation, audio_status=audio_status, audio_error=audio_error)
 
 
-def generate_explanation(image_path: Path, prompt_text: str, model_name: str):
+def generate_explanation(image_path: Path, prompt_explain_text: str, model_name: str):
     image = Image.open(image_path)
     image_type = "png"
     image_content = to_image_content(image, image_type)
@@ -602,9 +653,34 @@ def generate_explanation(image_path: Path, prompt_text: str, model_name: str):
                 "content": [
                     {
                         "type": "text",
-                        "text": prompt_text,
+                        "text": prompt_explain_text,
                     },
                     image_content,
+                ],
+            }
+        ],
+        json_mode=False,
+        model=model_name,
+        reasoning_effort=default_reasoning_effort,
+    )
+    return response
+
+
+def generate_speech_text(explanation: str, prompt_speek_text: str, model_name: str):
+    response = run_gpt(
+        client,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt_speek_text,
+                    },
+                    {
+                        "type": "text",
+                        "text": explanation,
+                    },
                 ],
             }
         ],
@@ -647,25 +723,39 @@ def generation_task(
         request_id = task_id
         page = 1
     try:
-        prompt_text = resolve_document_prompt_text(request_id)
+        speech_path = cache_path.with_name(f"speak_{page:04d}.txt")
+        prompt_explain_text = resolve_document_prompt_explain_text(request_id)
+        prompt_speek_text = resolve_document_prompt_speek_text(request_id)
         model_name = resolve_document_model_name(request_id)
         cached_result = get_repository().get_result(
             request_id,
             page,
-            prompt_text=prompt_text,
+            prompt_explain_text=prompt_explain_text,
+            prompt_speek_text=prompt_speek_text,
             model_name=model_name,
         )
-        if not force and cached_result is not None and cache_path.exists() and audio_path.exists():
+        if (
+            not force
+            and cached_result is not None
+            and cache_path.exists()
+            and speech_path.exists()
+            and audio_path.exists()
+        ):
             explanation = cache_path.read_text()
             print(f"[INFO] Reusing cached explanation for {image_path}", file=sys.stderr)
-            return GenerationResult(explanation=explanation, audio_status="ready", audio_error=None)
+            return GenerationResult(
+                explanation=explanation,
+                speech_text=speech_path.read_text(),
+                audio_status="ready",
+                audio_error=None,
+            )
         if should_announce_generation:
             started_generation = True
             broadcast_generation_started(request_id, page)
         try:
             gpt_result = generate_explanation(
                 image_path,
-                prompt_text,
+                prompt_explain_text,
                 model_name,
             )
             explanation = gpt_result.content
@@ -674,16 +764,23 @@ def generation_task(
             print(f"[ERROR] Failed to generate explanation for {image_path}: {exc}", file=sys.stderr)
             return exc
         try:
-            text_to_wav(explanation, speaker, audio_path, max_length=250)
+            gpt_speech_result = generate_speech_text(
+                explanation,
+                prompt_speek_text,
+                model_name,
+            )
+            speech_text = gpt_speech_result.content
+            speech_path.write_text(speech_text)
         except Exception as exc:  # noqa: BLE001
-            print(f"[ERROR] Failed to generate audio for {image_path}: {exc}", file=sys.stderr)
+            print(f"[ERROR] Failed to generate speech text for {image_path}: {exc}", file=sys.stderr)
             print(f"[ERROR] Explanation was: {explanation}", file=sys.stderr)
-            print(f"[INFO] Continuing without audio for {image_path}", file=sys.stderr)
             result_row = get_repository().upsert_result(
                 request_id,
                 page,
                 explanation,
-                prompt_text=prompt_text,
+                speech_text="",
+                prompt_explain_text=prompt_explain_text,
+                prompt_speek_text=prompt_speek_text,
                 model_name=model_name,
                 audio_status="failed",
                 audio_error=str(exc),
@@ -693,10 +790,11 @@ def generation_task(
                 request_id,
                 page,
                 result_id=str(result_row["result_id"]) if result_row is not None else None,
+                kind="explanation",
                 elapsed_ms=elapsed_ms,
                 input_tokens=gpt_result.input_tokens,
                 output_tokens=gpt_result.output_tokens,
-                prompt_text=prompt_text,
+                prompt_text=prompt_explain_text,
                 model_name=model_name,
                 detail={
                     "kind": "explanation",
@@ -704,16 +802,87 @@ def generation_task(
                     "audio_error": str(exc),
                 },
             )
+            record_session_usage(
+                request_id,
+                page,
+                result_id=str(result_row["result_id"]) if result_row is not None else None,
+                kind="speech",
+                elapsed_ms=0,
+                input_tokens=0,
+                output_tokens=0,
+                prompt_text=prompt_speek_text,
+                model_name=model_name,
+                detail={
+                    "kind": "speech",
+                    "audio_status": "failed",
+                    "audio_error": str(exc),
+                },
+            )
             broadcast_session_snapshot(request_id)
-            return GenerationResult(explanation=explanation, audio_status="failed", audio_error=str(exc))
+            return GenerationResult(explanation=explanation, speech_text="", audio_status="failed", audio_error=str(exc))
+        try:
+            text_to_wav(speech_text, speaker, audio_path, max_length=250)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ERROR] Failed to generate audio for {image_path}: {exc}", file=sys.stderr)
+            print(f"[ERROR] Speech text was: {speech_text}", file=sys.stderr)
+            print(f"[INFO] Continuing without audio for {image_path}", file=sys.stderr)
+            result_row = get_repository().upsert_result(
+                request_id,
+                page,
+                explanation,
+                speech_text=speech_text,
+                prompt_explain_text=prompt_explain_text,
+                prompt_speek_text=prompt_speek_text,
+                model_name=model_name,
+                audio_status="failed",
+                audio_error=str(exc),
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            record_session_usage(
+                request_id,
+                page,
+                result_id=str(result_row["result_id"]) if result_row is not None else None,
+                kind="explanation",
+                elapsed_ms=elapsed_ms,
+                input_tokens=gpt_result.input_tokens,
+                output_tokens=gpt_result.output_tokens,
+                prompt_text=prompt_explain_text,
+                model_name=model_name,
+                detail={
+                    "kind": "explanation",
+                    "audio_status": "failed",
+                    "audio_error": str(exc),
+                },
+            )
+            record_session_usage(
+                request_id,
+                page,
+                result_id=str(result_row["result_id"]) if result_row is not None else None,
+                kind="speech",
+                elapsed_ms=0,
+                input_tokens=gpt_speech_result.input_tokens,
+                output_tokens=gpt_speech_result.output_tokens,
+                prompt_text=prompt_speek_text,
+                model_name=model_name,
+                detail={
+                    "kind": "speech",
+                    "audio_status": "failed",
+                    "audio_error": str(exc),
+                },
+            )
+            broadcast_session_snapshot(request_id)
+            return GenerationResult(explanation=explanation, speech_text=speech_text, audio_status="failed", audio_error=str(exc))
         print(f"[INFO] Finished generating explanation for {image_path}", file=sys.stderr)
         print(f"[INFO] Explanation saved to {cache_path}", file=sys.stderr)
+        print(f"[INFO] Speech text saved to {speech_path}", file=sys.stderr)
         print(f"[INFO] Audio saved to {audio_path}", file=sys.stderr)
         result_row = get_repository().upsert_result(
             request_id,
             page,
             explanation,
-            prompt_text=prompt_text,
+            speech_text=speech_text,
+            prompt_explain_text=prompt_explain_text,
+            prompt_speek_text=prompt_speek_text,
             model_name=model_name,
             audio_status="ready",
             audio_error=None,
@@ -723,10 +892,11 @@ def generation_task(
             request_id,
             page,
             result_id=str(result_row["result_id"]) if result_row is not None else None,
+            kind="explanation",
             elapsed_ms=elapsed_ms,
             input_tokens=gpt_result.input_tokens,
             output_tokens=gpt_result.output_tokens,
-            prompt_text=prompt_text,
+            prompt_text=prompt_explain_text,
             model_name=model_name,
             detail={
                 "kind": "explanation",
@@ -734,8 +904,24 @@ def generation_task(
                 "audio_error": None,
             },
         )
+        record_session_usage(
+            request_id,
+            page,
+            result_id=str(result_row["result_id"]) if result_row is not None else None,
+            kind="speech",
+            elapsed_ms=0,
+            input_tokens=gpt_speech_result.input_tokens,
+            output_tokens=gpt_speech_result.output_tokens,
+            prompt_text=prompt_speek_text,
+            model_name=model_name,
+            detail={
+                "kind": "speech",
+                "audio_status": "ready",
+                "audio_error": None,
+            },
+        )
         broadcast_session_snapshot(request_id)
-        return GenerationResult(explanation=explanation, audio_status="ready", audio_error=None)
+        return GenerationResult(explanation=explanation, speech_text=speech_text, audio_status="ready", audio_error=None)
     finally:
         if started_generation:
             broadcast_generation_finished(request_id, page)
@@ -774,9 +960,23 @@ def generate_explanation_through_queue(
 def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
     audio_path = data_dir / req.request_id / f"explain_{req.page:04d}.mp3"
     if not audio_path.exists():
-        explanation_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
-        explanation = explanation_path.read_text()
-        text_to_wav(explanation, speaker, audio_path)
+        speech_path = data_dir / req.request_id / f"speak_{req.page:04d}.txt"
+        if speech_path.exists():
+            speech_text = speech_path.read_text()
+        else:
+            result_row = get_repository().get_result(
+                req.request_id,
+                req.page,
+                prompt_explain_text=resolve_document_prompt_explain_text(req.request_id),
+                prompt_speek_text=resolve_document_prompt_speek_text(req.request_id),
+                model_name=resolve_document_model_name(req.request_id),
+            )
+            if result_row is None:
+                explanation_path = data_dir / req.request_id / f"explain_{req.page:04d}.txt"
+                speech_text = explanation_path.read_text()
+            else:
+                speech_text = str(result_row.get("speech_text") or result_row.get("explanation") or "")
+        text_to_wav(speech_text, speaker, audio_path)
     return fastapi.responses.FileResponse(audio_path)
 
 

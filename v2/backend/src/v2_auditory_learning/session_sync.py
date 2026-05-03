@@ -26,6 +26,8 @@ class SessionSyncEvent:
     request_id: str
     current_page: int | None = None
     is_favorited: bool | None = None
+    prompt_explain_text: str | None = None
+    prompt_speek_text: str | None = None
     total_generation_count: int | None = None
     total_generation_elapsed_ms: int | None = None
     total_input_tokens: int | None = None
@@ -135,6 +137,8 @@ def build_session_snapshot_event(
     current_page: int | None,
     is_favorited: bool,
     *,
+    prompt_explain_text: str | None = None,
+    prompt_speek_text: str | None = None,
     total_generation_count: int | None = None,
     total_generation_elapsed_ms: int | None = None,
     total_input_tokens: int | None = None,
@@ -146,6 +150,8 @@ def build_session_snapshot_event(
         request_id=request_id,
         current_page=current_page,
         is_favorited=is_favorited,
+        prompt_explain_text=prompt_explain_text,
+        prompt_speek_text=prompt_speek_text,
         total_generation_count=total_generation_count,
         total_generation_elapsed_ms=total_generation_elapsed_ms,
         total_input_tokens=total_input_tokens,

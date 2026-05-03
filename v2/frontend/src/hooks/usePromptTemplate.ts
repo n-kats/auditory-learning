@@ -3,15 +3,21 @@ import { useEffect, useRef, useState } from "react";
 import { fetchDefaultPrompt, isNetworkFetchError } from "../api";
 
 type UsePromptTemplateResult = {
-  defaultPromptText: string;
-  draftPromptText: string;
-  setDraftPromptText: (value: string) => void;
+  defaultExplainPromptText: string;
+  defaultSpeekPromptText: string;
+  draftExplainPromptText: string;
+  draftSpeekPromptText: string;
+  setDraftExplainPromptText: (value: string) => void;
+  setDraftSpeekPromptText: (value: string) => void;
 };
 
 export function usePromptTemplate(): UsePromptTemplateResult {
-  const [defaultPromptText, setDefaultPromptText] = useState("");
-  const [draftPromptText, setDraftPromptText] = useState("");
-  const promptTemplateDirtyRef = useRef(false);
+  const [defaultExplainPromptText, setDefaultExplainPromptText] = useState("");
+  const [defaultSpeekPromptText, setDefaultSpeekPromptText] = useState("");
+  const [draftExplainPromptText, setDraftExplainPromptText] = useState("");
+  const [draftSpeekPromptText, setDraftSpeekPromptText] = useState("");
+  const explainPromptDirtyRef = useRef(false);
+  const speekPromptDirtyRef = useRef(false);
   const promptLoadRetryRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -27,9 +33,13 @@ export function usePromptTemplate(): UsePromptTemplateResult {
           window.clearTimeout(promptLoadRetryRef.current);
           promptLoadRetryRef.current = null;
         }
-        setDefaultPromptText(response.prompt_text);
-        if (!promptTemplateDirtyRef.current) {
-          setDraftPromptText(response.prompt_text);
+        setDefaultExplainPromptText(response.prompt_explain_text);
+        setDefaultSpeekPromptText(response.prompt_speek_text);
+        if (!explainPromptDirtyRef.current) {
+          setDraftExplainPromptText(response.prompt_explain_text);
+        }
+        if (!speekPromptDirtyRef.current) {
+          setDraftSpeekPromptText(response.prompt_speek_text);
         }
       } catch (error) {
         if (canceled) {
@@ -41,8 +51,11 @@ export function usePromptTemplate(): UsePromptTemplateResult {
           }, 1000);
           return;
         }
-        if (!promptTemplateDirtyRef.current) {
-          setDraftPromptText("");
+        if (!explainPromptDirtyRef.current) {
+          setDraftExplainPromptText("");
+        }
+        if (!speekPromptDirtyRef.current) {
+          setDraftSpeekPromptText("");
         }
       }
     };
@@ -59,11 +72,17 @@ export function usePromptTemplate(): UsePromptTemplateResult {
   }, []);
 
   return {
-    defaultPromptText,
-    draftPromptText,
-    setDraftPromptText: (value: string) => {
-      promptTemplateDirtyRef.current = true;
-      setDraftPromptText(value);
+    defaultExplainPromptText,
+    defaultSpeekPromptText,
+    draftExplainPromptText,
+    draftSpeekPromptText,
+    setDraftExplainPromptText: (value: string) => {
+      explainPromptDirtyRef.current = true;
+      setDraftExplainPromptText(value);
+    },
+    setDraftSpeekPromptText: (value: string) => {
+      speekPromptDirtyRef.current = true;
+      setDraftSpeekPromptText(value);
     },
   };
 }

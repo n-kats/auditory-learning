@@ -4,7 +4,8 @@ import type { SessionSummary } from "../api";
 
 type SessionDirectoryProps = {
   draftUrl: string;
-  promptText: string;
+  draftExplainPromptText: string;
+  draftSpeekPromptText: string;
   modelName: string;
   sessions: SessionSummary[];
   currentSessionId: string | null;
@@ -13,7 +14,8 @@ type SessionDirectoryProps = {
   sessionsError: string | null;
   onContinue: (session: SessionSummary) => void;
   onDraftUrlChange: (value: string) => void;
-  onPromptTextChange: (value: string) => void;
+  onDraftExplainPromptTextChange: (value: string) => void;
+  onDraftSpeekPromptTextChange: (value: string) => void;
   onModelNameChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
@@ -27,7 +29,8 @@ function formatSessionLabel(session: SessionSummary): string {
 export function SessionDirectory(props: SessionDirectoryProps) {
   const {
     draftUrl,
-    promptText,
+    draftExplainPromptText,
+    draftSpeekPromptText,
     modelName,
     sessions,
     currentSessionId,
@@ -36,7 +39,8 @@ export function SessionDirectory(props: SessionDirectoryProps) {
     sessionsError,
     onContinue,
     onDraftUrlChange,
-    onPromptTextChange,
+    onDraftExplainPromptTextChange,
+    onDraftSpeekPromptTextChange,
     onModelNameChange,
     onSubmit,
   } = props;
@@ -73,15 +77,26 @@ export function SessionDirectory(props: SessionDirectoryProps) {
         <details className="search-details">
           <summary>詳細</summary>
           <div className="panel search-panel">
-            <label className="field prompt-field">
-              <span>プロンプト</span>
-              <textarea
-                value={promptText}
-                onChange={(event) => onPromptTextChange(event.currentTarget.value)}
-                rows={10}
-                spellCheck={false}
-              />
-            </label>
+            <div className="session-prompt-grid">
+              <label className="field prompt-field">
+                <span>解説用プロンプト</span>
+                <textarea
+                  value={draftExplainPromptText}
+                  onChange={(event) => onDraftExplainPromptTextChange(event.currentTarget.value)}
+                  rows={10}
+                  spellCheck={false}
+                />
+              </label>
+              <label className="field prompt-field">
+                <span>読み上げ用プロンプト</span>
+                <textarea
+                  value={draftSpeekPromptText}
+                  onChange={(event) => onDraftSpeekPromptTextChange(event.currentTarget.value)}
+                  rows={10}
+                  spellCheck={false}
+                />
+              </label>
+            </div>
             <label className="field model-field">
               <span>モデル</span>
               <input type="text" value={modelName} onChange={(event) => onModelNameChange(event.currentTarget.value)} />

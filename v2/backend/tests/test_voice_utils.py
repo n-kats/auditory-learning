@@ -78,17 +78,34 @@ def test_generation_task_keeps_explanation_when_audio_fails(monkeypatch, tmp_pat
     install_main_import_stubs(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AUDITORY_LEARNING_V2_DATA_DIR", str(tmp_path / "data"))
-    prompt_path = tmp_path / "prompt.txt"
-    prompt_path.write_text("説明プロンプト")
-    monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_PATH", str(prompt_path))
+    prompt_explain_path = tmp_path / "prompt_explain.txt"
+    prompt_speek_path = tmp_path / "prompt_speek.txt"
+    prompt_explain_path.write_text("説明プロンプト")
+    prompt_speek_path.write_text("読み上げプロンプト")
+    monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH", str(prompt_explain_path))
+    monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH", str(prompt_speek_path))
 
     main = importlib.import_module("v2_auditory_learning.main")
 
     class FakeRepository:
         def get_document(self, request_id: str):
-            return {"prompt_text": "説明プロンプト", "model_name": "gpt-5.4-mini", "paper_id": "paper-1"}
+            return {
+                "prompt_text": "説明プロンプト",
+                "prompt_explain_text": "説明プロンプト",
+                "prompt_speek_text": "読み上げプロンプト",
+                "model_name": "gpt-5.4-mini",
+                "paper_id": "paper-1",
+            }
 
-        def get_result(self, request_id: str, page_num: int, *, prompt_text: str = "", model_name: str = ""):
+        def get_result(
+            self,
+            request_id: str,
+            page_num: int,
+            *,
+            prompt_explain_text: str = "",
+            prompt_speek_text: str = "",
+            model_name: str = "",
+        ):
             return None
 
         def upsert_result(self, *args, **kwargs):
@@ -109,7 +126,12 @@ def test_generation_task_keeps_explanation_when_audio_fails(monkeypatch, tmp_pat
         input_tokens = 100
         output_tokens = 200
 
-    monkeypatch.setattr(main, "generate_explanation", lambda image_path, prompt_text, model_name=None: FakeGptResult())
+    monkeypatch.setattr(
+        main,
+        "generate_explanation",
+        lambda image_path, prompt_explain_text, model_name=None: FakeGptResult(),
+    )
+    monkeypatch.setattr(main, "generate_speech_text", lambda *args, **kwargs: FakeGptResult())
 
     def fail_text_to_wav(*args, **kwargs):
         raise RuntimeError("voicevox timeout")
