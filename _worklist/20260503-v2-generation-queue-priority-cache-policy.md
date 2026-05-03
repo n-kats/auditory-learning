@@ -1,0 +1,17 @@
+- 生成キューを優先度付きにして、再生対象の予約が来たら既存予約を高優先度へ更新する
+- `explain` はキュー投入後に worker 側で cache 判定する
+- `regenerate` は cache があっても再生成する
+- scheduler と generation_task の単体テストを追加する
+- backend と docs / README を整合させる
+- 完了
+  - scheduler の優先度テストと generation_task の cache / force テストを追加済み
+  - docs / README に queue policy を追記済み
+- frontend の再生中ボタンに active 状態を追加し、quick 寄せの薄い表示にする
+- 完了
+  - `isPlaying` を SessionTopPanel に通した
+  - active class のスタイルと helper テストを追加した
+- 確認
+  - `cd /workspace/v2/backend && uv run python -m compileall src`
+  - `cd /workspace/v2/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --with pytest==8.3.5 --with pygments==2.20.0 pytest tests/test_generation_queue.py tests/test_generation_task.py tests/test_settings.py tests/test_repository.py tests/test_costs.py tests/test_session_sync.py tests/test_voice_utils.py tests/test_voicevox_url.py tests/test_pdf_utils.py`
+  - `cd /workspace/v2/frontend && npm test -- --run src/sessionTopPanelState.test.ts src/documentSessionState.test.ts src/documentSessionSync.test.ts src/pageState.test.ts src/audioPreferences.test.ts`
+  - `cd /workspace/v2/frontend && npm run build`

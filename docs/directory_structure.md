@@ -12,8 +12,16 @@
 - `quick-auditory-learning/docker-compose.yml`: quick プロジェクトの起動定義。
 - `v2/`: v1 と同じ PDF 解説機能を quick 風の構成で分離した新しいプロジェクトルート。
 - `v2/backend/src/v2_auditory_learning/`: v2 の PDF 取得、画像変換、解説生成、音声生成を扱う FastAPI 実装本体。
+- `v2/backend/src/v2_auditory_learning/settings.py`: v2 backend の環境変数と既定値をまとめる設定モジュール。
+- `v2/backend/src/v2_auditory_learning/db.py`: v2 backend の初期永続化 repository。URL と request_id の対応や document 情報を扱う。
 - `v2/backend/docker/`: v2 backend 用の Docker イメージ定義を置く。
 - `v2/frontend/`: v2 backend と分離した React + Vite 実装本体。
+- `v2/frontend/src/components/`: v2 frontend の表示部品。top panel、workspace、アイコンなどの UI を置く。
+- `v2/frontend/src/hooks/`: v2 frontend の副作用と状態をまとめる hook を置く。
+- `v2/frontend/src/hooks/useSessionDirectory.ts`: v2 frontend の開始・続きから一覧を扱う hook。
+- `v2/frontend/src/pages/`: v2 frontend のページ単位の構成。開始画面と session 画面を置く。
+- `v2/frontend/src/utils/`: v2 frontend の純粋ヘルパー。UI 表示用の文字列整形などを置く。
+- `v2/frontend/src/components/SessionDirectory.tsx`: v2 frontend の開始画面と session 一覧表示。
 - `v2/frontend/docker/`: v2 frontend 用の Docker イメージ定義を置く。
 - `v2/docker-compose.yml`: v2 プロジェクトの起動定義。
 - `_data/quick_auditory_learning/`: quick プロジェクト専用の永続データ。JSONL インポート管理や Postgres データの置き場。
@@ -41,6 +49,7 @@
 - `docs/spec/quick_auditory_learning_flow.md`: quick-auditory-learning の通信フロー仕様。
 - `docs/spec/quick_auditory_learning_implementation_notes.md`: quick-auditory-learning の実装上の注意点。
 - `docs/spec/quick_auditory_learning_sync_policy.md`: quick-auditory-learning の同一 session 複数クライアント同期ポリシー。
+- `docs/spec/v2_auditory_learning_architecture.md`: v2 を quick 風に保つための構成、state 分割、メッセージ設計、テスト方針。
 - `docs/how_to/`: 手順を置く。`how_to_<項目名>.md` の形式で作成する。
 - `docs/coding_rule/`: コーディング規約を置く。言語別の規約、命名、フォーマット、例外方針を整理する。
 - `docs/web/`: 外部参照ログを置く。外部情報の参照記録を残す。

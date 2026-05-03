@@ -1,0 +1,9 @@
+- 目的: プレビュー画像をマウスホイールで拡大縮小できるようにする。
+- 方針: 既存の本文/プレビュー分割はそのままにし、preview だけの local state とする。
+- 変更:
+  - preview zoom の clamp / wheel 調整を pure helper に切り出した。
+  - `useWorkspaceLayout` に preview zoom state と wheel handler を追加した。
+  - `WorkspaceView` の preview stage に wheel handler と scale 表示を追加した。
+  - ページ切り替え時は zoom を 1 に戻す。
+- 確認:
+  - frontend の unit test と build を実行する。

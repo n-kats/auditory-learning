@@ -1986,6 +1986,7 @@ def generate_explanation(
             model=settings.llm_model,
             input=prompt,
             reasoning={"effort": "none"},
+            store=False,
         )
         explanation = response.output_text.strip()
         finished_at = datetime.now(UTC)

@@ -119,7 +119,7 @@ def generate_search_keyword(
         "タイトル: {title}\n"
         "アブスト: {abstract}"
     ).format(title=title, abstract=abstract)
-    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"})
+    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"}, store=False)
     text = response.output_text.strip()
     keywords = _normalize_keyword_candidates(text)
     if not keywords:
@@ -158,7 +158,7 @@ def generate_fulltext_query(
         "タイトル: {title}\n"
         "アブスト: {abstract}"
     ).format(title=title, abstract=abstract)
-    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"})
+    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"}, store=False)
     query = _normalize_search_query(response.output_text)
     if not query:
         query = build_followup_query(title, abstract)

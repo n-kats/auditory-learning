@@ -9,6 +9,8 @@ from pydub import AudioSegment
 
 from v2_auditory_learning.utils.json_utils import Bson
 
+VOICEVOX_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+
 
 def split_text(text: str, max_length: int, separetors: list[str]):
     if len(text) < max_length:
@@ -46,7 +48,11 @@ class VoiceVoxSpeaker:
     volume: float = 1.0
 
     def create_audio_segment(self, text: str) -> AudioSegment:
-        response = httpx.post(f"{self.url}/audio_query", params={"speaker": self.speaker_id, "text": text})
+        response = httpx.post(
+            f"{self.url}/audio_query",
+            params={"speaker": self.speaker_id, "text": text},
+            timeout=VOICEVOX_TIMEOUT,
+        )
 
         if not (200 <= response.status_code < 300):
             raise RuntimeError(f"voicevox api returns {response.status_code}")
@@ -59,6 +65,7 @@ class VoiceVoxSpeaker:
             f"{self.url}/synthesis?speaker={self.speaker_id}",
             headers={"Content-Type": "application/json"},
             data=synthesis_config.as_bytes(),
+            timeout=VOICEVOX_TIMEOUT,
         )
         if not (200 <= synthesis_response.status_code < 300):
             raise RuntimeError(f"voicevox api returns {synthesis_response.status_code}")
