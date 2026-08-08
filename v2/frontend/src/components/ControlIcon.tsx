@@ -1,4 +1,4 @@
-export type ControlIconKind = "stop" | "play" | "next" | "regenerate";
+export type ControlIconKind = "stop" | "play" | "next" | "regenerate" | "upload";
 
 export function ControlIcon({ kind }: { kind: ControlIconKind }) {
   switch (kind) {
@@ -31,6 +31,14 @@ export function ControlIcon({ kind }: { kind: ControlIconKind }) {
           <path d="M17.3 6.1V9.6h-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           <path d="M17.2 15.8A7 7 0 0 1 6.8 17.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
           <path d="M6.8 17.9v-3.5h3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      );
+    case "upload":
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4.8v9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+          <path d="M8.6 8.5 12 5.1l3.4 3.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M6.5 14.6v1.5c0 .9.7 1.6 1.6 1.6h7.8c.9 0 1.6-.7 1.6-1.6v-1.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
         </svg>
       );
   }

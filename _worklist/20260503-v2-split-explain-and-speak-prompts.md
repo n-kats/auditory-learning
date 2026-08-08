@@ -1,7 +1,7 @@
 - 目的: 解説生成と読み上げ用テキスト生成を分離する。
 - 対象:
   - 解説用プロンプト: `prompt_explain.txt`
-  - 読み上げ用プロンプト: `prompt_speek.txt`
+  - 読み上げ用プロンプト: `prompt_speak.txt`
 - 影響範囲:
   - backend の prompt 取得と session settings API
   - DB の session / result / usage の持ち方
@@ -14,7 +14,7 @@
 - 確認:
   - backend / frontend のテストと build を更新して通す
 - 対応済み:
-  - `prompt_explain.txt` と `prompt_speek.txt` を既定プロンプトとして分離
+  - `prompt_explain.txt` と `prompt_speak.txt` を既定プロンプトとして分離
   - session settings UI を解説用/読み上げ用の 2 系統に分離
   - result, usage, cost 集計を split prompt 前提に更新
   - backend / frontend のテストと build は通過済み

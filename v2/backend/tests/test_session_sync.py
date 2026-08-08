@@ -12,16 +12,16 @@ def test_apply_session_sync_event_tracks_page_and_favorite() -> None:
     )
     state = apply_session_sync_event(
         state,
-        SessionSyncEvent(type="page_updated", request_id="session-1", current_page=4),
+        SessionSyncEvent(type="page_updated", request_id="session-1", current_page=4, is_favorited=True),
     )
     state = apply_session_sync_event(
         state,
-        SessionSyncEvent(type="favorite_toggled", request_id="session-1", is_favorited=True),
+        SessionSyncEvent(type="favorite_toggled", request_id="session-1", is_favorited=False, page_num=4),
     )
 
     assert state.request_id == "session-1"
     assert state.current_page == 4
-    assert state.is_favorited is True
+    assert state.is_favorited is False
     assert state.last_event_type == "favorite_toggled"
     assert state.revision == 3
 
@@ -31,7 +31,7 @@ def test_apply_session_sync_event_ignores_other_session_events() -> None:
 
     next_state = apply_session_sync_event(
         state,
-        SessionSyncEvent(type="page_updated", request_id="session-2", current_page=10),
+        SessionSyncEvent(type="page_updated", request_id="session-2", current_page=10, is_favorited=False),
     )
 
     assert next_state == state

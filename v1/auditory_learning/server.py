@@ -19,9 +19,12 @@ from auditory_learning.utils.gpt_4o_utils import run_gpt_4o, to_image_content
 from auditory_learning.utils.pdf_utils import download_pdf
 from auditory_learning.utils.voice_utils import VoiceVoxSpeaker, text_to_wav
 
-data_dir = Path("_data")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+data_dir = REPO_ROOT / "_data" / "v1"
 
 load_dotenv()
+default_model_name = os.environ.get("AUDITORY_LEARNING_DEFAULT_MODEL_NAME", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
+default_reasoning_effort = os.environ.get("AUDITORY_LEARNING_DEFAULT_REASONING_EFFORT", "medium").strip() or "medium"
 app = fastapi.FastAPI()
 client = openai.Client()
 url_to_request_id_path = data_dir / "url_to_request_id.json"
@@ -35,8 +38,11 @@ else:
 frontend_dir = (Path(__file__).parent.parent / "frontend").resolve()
 app.mount("/static", StaticFiles(directory=frontend_dir / "dist"), name="static")
 app.mount("/assets", StaticFiles(directory=frontend_dir / "dist/assets/"))
-prompt_path = Path(os.environ.get(
-    "AUDITORY_LEARNING_PROMPT_PATH", "prompt.txt"))
+prompt_path = Path(
+    os.environ.get("AUDITORY_LEARNING_PROMPT_PATH", str(REPO_ROOT / "prompt_for_v1.txt"))
+)
+if not prompt_path.is_absolute():
+    prompt_path = REPO_ROOT / prompt_path
 
 
 @app.get("/")
@@ -158,7 +164,8 @@ def generate_explanation(image_path):
             }
         ],
         json_mode=False,
-        model="gpt-5-mini",
+        model=default_model_name,
+        reasoning_effort=default_reasoning_effort,
     )
     return response
 

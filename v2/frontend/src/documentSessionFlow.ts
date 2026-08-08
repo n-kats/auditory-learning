@@ -26,8 +26,9 @@ export type LoadPageOptions = LoadPageParams;
 export async function retryInitDocumentWithBackoff(
   url: string,
   promptExplainText: string,
-  promptSpeekText: string,
+  promptSpeakText: string,
   modelName: string,
+  reasoningEffort: string,
   onRetryReset?: () => void,
 ): Promise<InitResponse> {
   const maxAttempts = 10;
@@ -36,7 +37,7 @@ export async function retryInitDocumentWithBackoff(
 
   while (attempt < maxAttempts) {
     try {
-      const response = await initDocument(url, promptExplainText, promptSpeekText, modelName);
+      const response = await initDocument(url, promptExplainText, promptSpeakText, modelName, reasoningEffort);
       onRetryReset?.();
       return response;
     } catch (error) {
@@ -99,6 +100,7 @@ export async function loadDocumentPage(params: LoadPageParams): Promise<void> {
           page: params.page,
           load_id: sequence,
           explanation: explanationResponse.explanation,
+          speech_text: explanationResponse.speech_text,
           audio_status: explanationResponse.audio_status === "failed" ? "failed" : "ready",
           audio_error: explanationResponse.audio_error ?? null,
         });
@@ -131,6 +133,7 @@ export async function loadDocumentPage(params: LoadPageParams): Promise<void> {
       page: params.page,
       load_id: sequence,
       explanation: explanationResponse.explanation,
+      speech_text: explanationResponse.speech_text,
       image_url: nextImageUrl,
       audio_url: nextAudioUrl,
       audio_status: explanationResponse.audio_status === "failed" ? "failed" : "ready",

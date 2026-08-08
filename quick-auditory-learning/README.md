@@ -44,7 +44,8 @@ QUICK_AUDITORY_LEARNING_HOST=localhost
 QUICK_AUDITORY_LEARNING_BACKEND_PORT=8000
 QUICK_AUDITORY_LEARNING_FRONTEND_PORT=5173
 QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME=text-embedding-3-large
-QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
+QUICK_AUDITORY_LEARNING_VOICEVOX_URL=
+QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL=http://voicevox:50021
 ```
 
 - 必須: `OPENAI_API_KEY` または `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY`。検索と解説生成を使うときに、どちらか一方を設定する。両方ある場合は `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を優先する。（規定値: なし）
@@ -53,8 +54,10 @@ QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
 - 任意: `QUICK_AUDITORY_LEARNING_BACKEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `8000`）
 - 任意: `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `5173`）
 - 任意: `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`。検索で使う埋め込みモデル名を変えるときに設定する。（規定値: `text-embedding-3-large`）
-- 任意: `QUICK_AUDITORY_LEARNING_LLM_MODEL`。解説生成で使うモデルを変えるときに設定する。（規定値: `gpt-5.4-nano`）
-- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する。（規定値: `http://voicevox:50021`）
+- 任意: `QUICK_AUDITORY_LEARNING_LLM_MODEL`。解説生成で使うモデルを変えるときに設定する。（規定値: `gpt-5.6-luna`）
+- 任意: `QUICK_AUDITORY_LEARNING_REASONING_EFFORT`。解説・検索補助生成の reasoning effort を設定する。（規定値: `medium`）
+- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する。（規定値: なし）
+- 任意: `QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL`。`QUICK_AUDITORY_LEARNING_VOICEVOX_URL` が未設定のときに使う VOICEVOX エンジン URL。（規定値: `http://voicevox:50021`）
 
 別 PC やスマホから開くときは、その端末から見えるホスト名か IP アドレスを `QUICK_AUDITORY_LEARNING_HOST` に入れます。`localhost` は自分の端末を指します。
 
@@ -75,6 +78,10 @@ QUICK_AUDITORY_LEARNING_VOICEVOX_URL=http://voicevox:50021
 - `gpt-5.2`
 - `gpt-5.2-mini`
 - `gpt-5.2-nano`
+- `gpt-5.6`
+- `gpt-5.6-sol`
+- `gpt-5.6-terra`
+- `gpt-5.6-luna`
 - `gpt-5.4`
 - `gpt-5.4-mini`
 - `gpt-5.4-nano`

@@ -127,7 +127,7 @@ def startup() -> None:
     logger.info("logging to %s", log_path)
     logger.info(
         "voicevox configured: url=%s random_speakers=%s fallback_speaker_id=%s",
-        settings.voicevox_url,
+        settings.resolved_voicevox_url,
         ["ずんだもん", "四国めたん", "春日部つむぎ"],
         settings.voicevox_speaker_id,
     )
@@ -256,7 +256,9 @@ def config() -> dict[str, str | bool | None]:
         "postgres_dsn": settings.postgres_dsn,
         "jsonl_path": str(settings.jsonl_path) if settings.jsonl_path is not None else None,
         "embedding_model_name": settings.embedding_model_name,
-        "voicevox_url": settings.voicevox_url,
+        "voicevox_url": settings.resolved_voicevox_url,
+        "voicevox_requested_url": settings.voicevox_url,
+        "voicevox_fallback_url": settings.voicevox_fallback_url,
         "voicevox_speaker_id": settings.voicevox_speaker_id,
         "openai_api_key_configured": bool(settings.openai_api_key),
         "jsonl_path_exists": settings.jsonl_path.exists() if settings.jsonl_path is not None else None,
@@ -1878,7 +1880,7 @@ def _ensure_explanation_audio(
     started_perf = perf_counter()
     last_error: Exception | None = None
     paper_speaker = build_voicevox_speaker(
-        url=settings.voicevox_url,
+        url=settings.resolved_voicevox_url,
         fallback_speaker_id=settings.voicevox_speaker_id,
         key=paper_id,
         speed=settings.voicevox_speed_scale,
@@ -1985,7 +1987,7 @@ def generate_explanation(
         response = client.responses.create(
             model=settings.llm_model,
             input=prompt,
-            reasoning={"effort": "none"},
+            reasoning={"effort": settings.reasoning_effort},
             store=False,
         )
         explanation = response.output_text.strip()

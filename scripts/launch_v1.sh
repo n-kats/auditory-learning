@@ -1,10 +1,10 @@
 #!/bin/bash
 cd "$(dirname "$(dirname "$0")")" || exit 1
-docker build -t "auditory-learning" docker
+docker build -t "auditory-learning" v1/docker
 
 docker run -it --rm \
   --net=host \
   -u "$(id -u):$(id -g)" \
   -v "$(pwd):/workspace" \
   --env-file .env \
-  auditory-learning bash scripts/serve.sh
+  auditory-learning bash scripts/serve_v1.sh

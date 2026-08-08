@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
 import { adjustPreviewZoomForWheel } from "../previewZoomState";
 import { applyPreviewDrag } from "../previewPanState";
@@ -16,7 +16,7 @@ type UseWorkspaceLayoutResult = {
   setWorkspaceSplit: (value: number) => void;
   resetPreviewZoom: () => void;
   resetPreviewPan: () => void;
-  onPreviewWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
+  onPreviewWheel: (event: WheelEvent) => void;
   onPreviewPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onDividerPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 };
@@ -98,7 +98,7 @@ export function useWorkspaceLayout(): UseWorkspaceLayoutResult {
       ? "minmax(0, 1fr) 12px"
     : `minmax(0, ${workspaceSplit}fr) 12px minmax(0, ${1 - workspaceSplit}fr)`;
 
-  const onPreviewWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+  const onPreviewWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
     setPreviewZoom((current) => {
       const nextZoom = adjustPreviewZoomForWheel(current, event.deltaY);

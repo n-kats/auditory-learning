@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { fetchFavorites, toggleFavorite, type FavoritePaperItem } from "../api";
+import { buildPaperLabel } from "../utils/appText";
 
 export function FavoritesPage() {
   const [items, setItems] = useState<FavoritePaperItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [pendingFavoriteKey, setPendingFavoriteKey] = useState<string | null>(null);
 
   useEffect(() => {
     let canceled = false;
@@ -38,20 +39,21 @@ export function FavoritesPage() {
     };
   }, []);
 
-  const handleToggleFavorite = async (requestId: string) => {
-    setPendingRequestId(requestId);
+  const handleToggleFavorite = async (requestId: string, pageNum: number) => {
+    const favoriteKey = `${requestId}:${pageNum}`;
+    setPendingFavoriteKey(favoriteKey);
     try {
-      const response = await toggleFavorite(requestId);
+      const response = await toggleFavorite(requestId, pageNum);
       setItems((current) => {
         if (!response.favorited) {
-          return current.filter((item) => item.request_id !== requestId);
+          return current.filter((item) => !(item.request_id === requestId && item.favorite_page_num === response.page_num));
         }
         return current;
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "favorites の更新に失敗しました。");
     } finally {
-      setPendingRequestId(null);
+      setPendingFavoriteKey(null);
     }
   };
 
@@ -72,19 +74,21 @@ export function FavoritesPage() {
         ) : items.length > 0 ? (
           <ul className="session-list">
             {items.map((item) => (
-              <li key={item.request_id} className="session-row">
+              <li key={`${item.request_id}:${item.favorite_page_num}`} className="session-row">
                 <button
                   className="session-open-button is-current"
                   type="button"
-                  onClick={() => void handleToggleFavorite(item.request_id)}
-                  disabled={pendingRequestId === item.request_id}
+                  onClick={() => void handleToggleFavorite(item.request_id, item.favorite_page_num)}
+                  disabled={pendingFavoriteKey === `${item.request_id}:${item.favorite_page_num}`}
                 >
                   解除
                 </button>
                 <div className="session-item is-current">
                   <div className="session-item-main">
-                    <p className="directory-item-url">{item.source_url}</p>
-                    <p className="directory-item-meta">p. {item.current_page ?? 1} / {item.page_num ?? 1}</p>
+                    <p className="directory-item-url">{buildPaperLabel(item.source_url) ?? item.source_url}</p>
+                    <p className="directory-item-meta">
+                      session: {item.request_id} / favorite: p. {item.favorite_page_num} / document: {item.page_num}
+                    </p>
                   </div>
                 </div>
               </li>

@@ -3,29 +3,30 @@ cd "$(dirname "$(dirname "$0")")" || exit 1
 
 HOST="${AUDITORY_LEARNING_HOST:-localhost}"
 PORT="${AUDITORY_LEARNING_PORT:-8000}"
+v1_root="$(pwd)/v1"
 
 mkdir -p _tmp/uv-cache
 export UV_CACHE_DIR="$(pwd)/_tmp/uv-cache"
 
-py_stamp="$(sha256sum pyproject.toml uv.lock | sha256sum | cut -d' ' -f1)"
-venv_stamp=".venv/.sync-stamp"
+py_stamp="$(sha256sum "$v1_root/pyproject.toml" "$v1_root/uv.lock" | sha256sum | cut -d' ' -f1)"
+venv_stamp="$v1_root/.venv/.sync-stamp"
 
-if [ ! -d .venv ]; then
-  uv venv
+if [ ! -d "$v1_root/.venv" ]; then
+  uv venv "$v1_root/.venv"
 fi
 
 if [ ! -f "$venv_stamp" ] || [ "$(cat "$venv_stamp")" != "$py_stamp" ]; then
-  uv sync --frozen
-  mkdir -p .venv
+  uv sync --project "$v1_root" --frozen
+  mkdir -p "$v1_root/.venv"
   printf '%s\n' "$py_stamp" > "$venv_stamp"
 fi
 
 (
-  cd frontend || exit 1
+  cd "$v1_root/frontend" || exit 1
   current_install_stamp="$(sha256sum package.json package-lock.json | sha256sum | cut -d' ' -f1)"
   install_stamp_path="node_modules/.install-stamp"
   build_stamp_path="node_modules/.build-stamp"
-  npm_cache_dir="../_tmp/npm-cache"
+  npm_cache_dir="../../_tmp/npm-cache"
 
   if [ ! -f "$install_stamp_path" ] || [ "$(cat "$install_stamp_path")" != "$current_install_stamp" ]; then
     npm install --cache "$npm_cache_dir" --prefer-offline --no-audit --no-fund
@@ -43,4 +44,4 @@ fi
   fi
 )
 
-uv run uvicorn auditory_learning.server:app --host "$HOST" --port "$PORT"
+uv run --project "$v1_root" uvicorn auditory_learning.server:app --host "$HOST" --port "$PORT"

@@ -1,8 +1,8 @@
 # v2 auditory learning
 
-v1 と同じく、公開 PDF の URL を入力して内容を解説し、VOICEVOX で音声再生する版です。
+公開 PDF の URL または PDF ファイルから読み始め、PDF のプレビューとページごとの AI 解説を見ながら、VOICEVOX で音声再生するアプリです。
 
-v2 は quick-auditory-learning に近い構成を目指して、`backend/` と `frontend/` を分けています。
+開始画面では新しい PDF の開始、以前に読んだ PDF の「続きから」の再開、お気に入りの確認ができます。再生画面では解説と PDF のプレビューを並べて表示し、再生・一時停止、音量・速度の変更、ページ移動、再生成、お気に入り登録を操作できます。解説用プロンプト、読み上げ用プロンプト、モデル、Reasoning Effort も調整できます。
 
 ## 構成
 
@@ -32,8 +32,9 @@ bash scripts/down_v2.sh
 - `AUDITORY_LEARNING_V2_POSTGRES_DB`
 - `AUDITORY_LEARNING_V2_POSTGRES_USER`
 - `AUDITORY_LEARNING_V2_POSTGRES_PASSWORD`
+- `AUDITORY_LEARNING_V2_HOST`
 - `AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH`
-- `AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH`
+- `AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH`
 - `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME`
 - `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT`
 - `AUDITORY_LEARNING_V2_VOICEVOX_URL`
@@ -41,24 +42,23 @@ bash scripts/down_v2.sh
 - `AUDITORY_LEARNING_V2_FRONTEND_URL`
 - `AUDITORY_LEARNING_V2_BACKEND_PORT`
 - `AUDITORY_LEARNING_V2_FRONTEND_PORT`
-- `AUDITORY_LEARNING_V2_HOST`
 - `AUDITORY_LEARNING_V2_DATA_DIR_HOST`
 - `AUDITORY_LEARNING_V2_POSTGRES_DATA_HOST`
 - `AUDITORY_LEARNING_V2_CACHE_DIR_HOST`
-- `VITE_AUDITORY_LEARNING_V2_API_BASE_URL`
 
 既定値は `v2/docker-compose.yml` と scripts 側にあります。
-`AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` が指すファイルの内容を、解説用の既定プロンプトとして使います。`AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH` が指すファイルの内容を、読み上げ用の既定プロンプトとして使います。どちらも相対パスはリポジトリルート基準で解決します。環境変数は `scripts/launch_v2.sh` と `docker compose` で渡します。backend は `.env` を直接読みません。`AUDITORY_LEARNING_V2_HOST` は外部から渡してください。
-`AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` は session の既定モデル名です。既定は `gpt-5.4-mini` です。
-`AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` は session の既定 reasoning effort です。既定は `middle` で、OpenAI へ渡すときは `medium` に正規化します。
+`AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` が指すファイルの内容を、解説用の既定プロンプトとして使います。`AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH` が指すファイルの内容を、読み上げ用の既定プロンプトとして使います。どちらも相対パスはリポジトリルート基準で解決します。環境変数は `scripts/launch_v2.sh` と `docker compose` で渡します。backend は `.env` を直接読みません。frontend には backend の絶対 URL を `VITE_AUDITORY_LEARNING_V2_API_BASE_URL` で渡します。backend の CORS は `AUDITORY_LEARNING_V2_FRONTEND_URL` を優先し、必要なら `AUDITORY_LEARNING_V2_HOST` から同一 host の任意 port を許可します。`localhost` への既定値は置いていません。
+`AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` は session の既定モデル名です。既定は `gpt-5.6-luna` です。
+`AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` は session の既定 reasoning effort です。既定は `medium` です。
 `AUDITORY_LEARNING_V2_VOICEVOX_URL` が有効ならそれを使い、無効なら `AUDITORY_LEARNING_V2_FALLBACK_VOICEVOX_URL` を使います。
+開始画面では URL からの開始に加えて PDF ファイルのアップロード開始もできます。
 
 ## backend の同期と favorite
 
 - `GET /sessions/` と `GET /sessions/{request_id}` で session 一覧と snapshot を返します。
 - `GET /sessions/{request_id}/settings` と `PATCH /sessions/{request_id}/settings` で解説用プロンプト、読み上げ用プロンプト、model を更新します。
 - session の詳細ブロックには 2 つのプロンプト、model に加えて、累積生成回数、処理時間、token 数、コストを表示します。
-- `GET /favorites/` と `POST /favorites/{request_id}/toggle` で document の favorite を扱います。
+- `GET /favorites/` と `POST /favorites/{request_id}/toggle` で favorite を扱います。favorite の保存単位は session と page の組で、toggle は `page_num` を指定でき、未指定ならその session の current page を対象にします。
 - `POST /sessions/{request_id}/favorite` は favorite toggle の session 版エイリアスです。
 - `GET /sessions/ws` で session の snapshot と更新イベントを配信します。
 - generation 開始時は `generation_started`、完了時は `generation_finished` を配信します。

@@ -44,11 +44,11 @@ def load_main(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AUDITORY_LEARNING_V2_DATA_DIR", str(tmp_path / "data"))
     prompt_explain_path = tmp_path / "prompt_explain.txt"
-    prompt_speek_path = tmp_path / "prompt_speek.txt"
+    prompt_speak_path = tmp_path / "prompt_speak.txt"
     prompt_explain_path.write_text("説明プロンプト")
-    prompt_speek_path.write_text("読み上げプロンプト")
+    prompt_speak_path.write_text("読み上げプロンプト")
     monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH", str(prompt_explain_path))
-    monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH", str(prompt_speek_path))
+    monkeypatch.setenv("AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH", str(prompt_speak_path))
     return importlib.import_module("v2_auditory_learning.main")
 
 
@@ -59,9 +59,8 @@ def test_generation_task_reuses_cached_result_without_regenerating(monkeypatch, 
     class FakeRepository:
         def get_document(self, request_id: str):
             return {
-                "prompt_text": "説明プロンプト",
                 "prompt_explain_text": "説明プロンプト",
-                "prompt_speek_text": "読み上げプロンプト",
+                "prompt_speak_text": "読み上げプロンプト",
                 "model_name": "gpt-5.4-mini",
                 "paper_id": "paper-1",
             }
@@ -72,7 +71,7 @@ def test_generation_task_reuses_cached_result_without_regenerating(monkeypatch, 
             page_num: int,
             *,
             prompt_explain_text: str = "",
-            prompt_speek_text: str = "",
+            prompt_speak_text: str = "",
             model_name: str = "",
         ):
             return {"result_id": "result-1", "explanation": "cached explanation"}
@@ -119,9 +118,8 @@ def test_generation_task_regenerates_when_settings_changed(monkeypatch, tmp_path
     class FakeRepository:
         def get_document(self, request_id: str):
             return {
-                "prompt_text": "新しいプロンプト",
                 "prompt_explain_text": "新しいプロンプト",
-                "prompt_speek_text": "読み上げプロンプト",
+                "prompt_speak_text": "読み上げプロンプト",
                 "model_name": "gpt-5.4-mini",
                 "paper_id": "paper-1",
             }
@@ -132,7 +130,7 @@ def test_generation_task_regenerates_when_settings_changed(monkeypatch, tmp_path
             page_num: int,
             *,
             prompt_explain_text: str = "",
-            prompt_speek_text: str = "",
+            prompt_speak_text: str = "",
             model_name: str = "",
         ):
             return None
@@ -191,9 +189,8 @@ def test_generation_task_force_regenerates_even_if_cached(monkeypatch, tmp_path)
     class FakeRepository:
         def get_document(self, request_id: str):
             return {
-                "prompt_text": "説明プロンプト",
                 "prompt_explain_text": "説明プロンプト",
-                "prompt_speek_text": "読み上げプロンプト",
+                "prompt_speak_text": "読み上げプロンプト",
                 "model_name": "gpt-5.4-mini",
                 "paper_id": "paper-1",
             }
@@ -204,7 +201,7 @@ def test_generation_task_force_regenerates_even_if_cached(monkeypatch, tmp_path)
             page_num: int,
             *,
             prompt_explain_text: str = "",
-            prompt_speek_text: str = "",
+            prompt_speak_text: str = "",
             model_name: str = "",
         ):
             return {"result_id": "result-1", "explanation": "cached explanation"}
@@ -252,3 +249,63 @@ def test_generation_task_force_regenerates_even_if_cached(monkeypatch, tmp_path)
     assert len(upserted_results) == 1
     assert len(recorded_usage) == 2
     assert broadcasts == [("start", 1), ("finish", 1)]
+
+
+def test_generation_task_keeps_cached_speech_text_when_speech_generation_fails(monkeypatch, tmp_path) -> None:
+    main = load_main(monkeypatch, tmp_path)
+    upserted_results: list[dict[str, object]] = []
+
+    class FakeRepository:
+        def get_document(self, request_id: str):
+            return {
+                "prompt_explain_text": "説明プロンプト",
+                "prompt_speak_text": "読み上げプロンプト",
+                "model_name": "gpt-5.4-mini",
+                "paper_id": "paper-1",
+            }
+
+        def get_result(
+            self,
+            request_id: str,
+            page_num: int,
+            *,
+            prompt_explain_text: str = "",
+            prompt_speak_text: str = "",
+            model_name: str = "",
+        ):
+            return {"result_id": "result-1", "explanation": "cached explanation", "speech_text": "cached speech"}
+
+        def upsert_result(self, *args, **kwargs):
+            upserted_results.append({"args": args, "kwargs": kwargs})
+            return {"result_id": "result-1"}
+
+        def record_session_usage(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(main, "get_repository", lambda: FakeRepository())
+    monkeypatch.setattr(main, "broadcast_generation_started", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "broadcast_generation_finished", lambda *args, **kwargs: None)
+
+    image_path = tmp_path / "page.png"
+    image_path.write_bytes(b"png")
+    cache_path = tmp_path / "explain.txt"
+    cache_path.write_text("cached explanation")
+    audio_path = tmp_path / "explain.mp3"
+    audio_path.write_bytes(b"audio")
+
+    class FakeGptResult:
+        content = "fresh explanation"
+        input_tokens = 11
+        output_tokens = 22
+
+    monkeypatch.setattr(main, "generate_explanation", lambda *args, **kwargs: FakeGptResult())
+    monkeypatch.setattr(main, "generate_speech_text", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("speech failed")))
+    monkeypatch.setattr(main, "text_to_wav", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not synthesize audio")))
+
+    result = main.generation_task("task:0001", image_path, cache_path, audio_path, force=False)
+
+    assert result.explanation == "fresh explanation"
+    assert result.speech_text == "cached speech"
+    assert result.audio_status == "failed"
+    assert result.audio_error == "speech failed"
+    assert upserted_results[0]["kwargs"]["speech_text"] == "cached speech"

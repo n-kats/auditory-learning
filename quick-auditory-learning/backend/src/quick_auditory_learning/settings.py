@@ -20,13 +20,21 @@ class Settings(BaseSettings):
     jsonl_path: Path | None = None
     embedding_model_name: str = "text-embedding-3-large"
     llm_model: str = Field(
-        default="gpt-5.4-nano",
+        default="gpt-5.6-luna",
         validation_alias=AliasChoices("QUICK_AUDITORY_LEARNING_LLM_MODEL"),
     )
+    reasoning_effort: str = Field(
+        default="medium",
+        validation_alias=AliasChoices("QUICK_AUDITORY_LEARNING_REASONING_EFFORT"),
+    )
     frontend_url: str | None = None
-    voicevox_url: str = Field(
+    voicevox_url: str | None = Field(
+        default=None,
+        validation_alias="QUICK_AUDITORY_LEARNING_VOICEVOX_URL",
+    )
+    voicevox_fallback_url: str = Field(
         default="http://voicevox:50021",
-        validation_alias=AliasChoices("VOICEVOX_URL", "QUICK_AUDITORY_LEARNING_VOICEVOX_URL"),
+        validation_alias="QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL",
     )
     voicevox_speaker_id: str = Field(
         default="1",
@@ -48,6 +56,11 @@ class Settings(BaseSettings):
             supported = ", ".join(sorted(SUPPORTED_COMPLETION_MODEL_NAMES))
             raise ValueError(f"QUICK_AUDITORY_LEARNING_LLM_MODEL must be one of: {supported}")
         return value
+
+    @property
+    def resolved_voicevox_url(self) -> str:
+        value = (self.voicevox_url or "").strip()
+        return value or self.voicevox_fallback_url
 
 
 settings = Settings()

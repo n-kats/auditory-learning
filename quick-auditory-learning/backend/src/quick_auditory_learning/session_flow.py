@@ -8,6 +8,8 @@ from unicodedata import normalize
 
 from openai import OpenAI
 
+from quick_auditory_learning.settings import settings
+
 FOLLOWUP_STOPWORDS = {
     "about",
     "after",
@@ -119,7 +121,12 @@ def generate_search_keyword(
         "タイトル: {title}\n"
         "アブスト: {abstract}"
     ).format(title=title, abstract=abstract)
-    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"}, store=False)
+    response = client.responses.create(
+        model=model_name,
+        input=prompt,
+        reasoning={"effort": settings.reasoning_effort},
+        store=False,
+    )
     text = response.output_text.strip()
     keywords = _normalize_keyword_candidates(text)
     if not keywords:
@@ -158,7 +165,12 @@ def generate_fulltext_query(
         "タイトル: {title}\n"
         "アブスト: {abstract}"
     ).format(title=title, abstract=abstract)
-    response = client.responses.create(model=model_name, input=prompt, reasoning={"effort": "none"}, store=False)
+    response = client.responses.create(
+        model=model_name,
+        input=prompt,
+        reasoning={"effort": settings.reasoning_effort},
+        store=False,
+    )
     query = _normalize_search_query(response.output_text)
     if not query:
         query = build_followup_query(title, abstract)

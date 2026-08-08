@@ -6,8 +6,9 @@ export type DocumentSessionSyncState = {
   maxPage: number;
   isFavorited: boolean;
   promptExplainText: string;
-  promptSpeekText: string;
+  promptSpeakText: string;
   modelName: string;
+  reasoningEffort: string;
   totalGenerationCount: number;
   totalGenerationElapsedMs: number;
   totalInputTokens: number;
@@ -22,8 +23,9 @@ export function createDocumentSessionSyncState(params?: Partial<DocumentSessionS
     maxPage: params?.maxPage ?? 1,
     isFavorited: params?.isFavorited ?? false,
     promptExplainText: params?.promptExplainText ?? "",
-    promptSpeekText: params?.promptSpeekText ?? "",
+    promptSpeakText: params?.promptSpeakText ?? "",
     modelName: params?.modelName ?? "",
+    reasoningEffort: params?.reasoningEffort ?? "",
     totalGenerationCount: params?.totalGenerationCount ?? 0,
     totalGenerationElapsedMs: params?.totalGenerationElapsedMs ?? 0,
     totalInputTokens: params?.totalInputTokens ?? 0,
@@ -47,8 +49,9 @@ export function applyDocumentSessionSyncEvent(
       maxPage: event.page_num ?? state.maxPage,
       isFavorited: event.is_favorited,
       promptExplainText: event.prompt_explain_text ?? state.promptExplainText,
-      promptSpeekText: event.prompt_speek_text ?? state.promptSpeekText,
+      promptSpeakText: event.prompt_speak_text ?? state.promptSpeakText,
       modelName: event.model_name ?? state.modelName,
+      reasoningEffort: event.reasoning_effort ?? state.reasoningEffort,
       totalGenerationCount: event.total_generation_count ?? state.totalGenerationCount,
       totalGenerationElapsedMs: event.total_generation_elapsed_ms ?? state.totalGenerationElapsedMs,
       totalInputTokens: event.total_input_tokens ?? state.totalInputTokens,
@@ -60,8 +63,9 @@ export function applyDocumentSessionSyncEvent(
       nextState.maxPage === state.maxPage &&
       nextState.isFavorited === state.isFavorited &&
       nextState.promptExplainText === state.promptExplainText &&
-      nextState.promptSpeekText === state.promptSpeekText &&
+      nextState.promptSpeakText === state.promptSpeakText &&
       nextState.modelName === state.modelName &&
+      nextState.reasoningEffort === state.reasoningEffort &&
       nextState.totalGenerationCount === state.totalGenerationCount &&
       nextState.totalGenerationElapsedMs === state.totalGenerationElapsedMs &&
       nextState.totalInputTokens === state.totalInputTokens &&
@@ -76,11 +80,15 @@ export function applyDocumentSessionSyncEvent(
       ...state,
       requestId: event.request_id,
       currentPage: event.current_page,
+      isFavorited: event.is_favorited ?? state.isFavorited,
     };
-    return nextState.requestId === state.requestId && nextState.currentPage === state.currentPage ? state : nextState;
+    return nextState.requestId === state.requestId && nextState.currentPage === state.currentPage && nextState.isFavorited === state.isFavorited ? state : nextState;
   }
 
   if (event.type === "favorite_toggled") {
+    if (event.page_num !== undefined && state.currentPage !== event.page_num) {
+      return state;
+    }
     const nextState = {
       ...state,
       requestId: event.request_id,

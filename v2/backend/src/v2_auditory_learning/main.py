@@ -14,6 +14,7 @@ import fastapi
 import openai
 import psycopg
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import File, Form, UploadFile
 from pdf2image import convert_from_path
 from PIL import Image
 from pydantic import BaseModel
@@ -25,11 +26,12 @@ from v2_auditory_learning.generation_queue import GenerationTaskScheduler
 from v2_auditory_learning.settings import (
     data_dir,
     default_reasoning_effort,
+    frontend_origin_regex,
     frontend_url,
     default_model_name,
     postgres_dsn,
     prompt_explain_path,
-    prompt_speek_path,
+    prompt_speak_path,
     requested_voicevox_url,
     voicevox_url,
 )
@@ -49,13 +51,19 @@ print("[INFO] Using postgres repository", file=sys.stderr)
 
 app = fastapi.FastAPI(title="v2-auditory-learning")
 client = openai.Client()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[frontend_url] if frontend_url else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_options: dict[str, object] = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if frontend_url:
+    cors_options["allow_origins"] = [frontend_url]
+elif frontend_origin_regex:
+    cors_options["allow_origins"] = []
+    cors_options["allow_origin_regex"] = frontend_origin_regex
+else:
+    cors_options["allow_origins"] = []
+app.add_middleware(CORSMiddleware, **cors_options)
 repository: Repository | None = None
 repository_lock = threading.Lock()
 session_broadcast_hub = SessionBroadcastHub()
@@ -89,12 +97,14 @@ def wait_for_database_ready(timeout_seconds: int = 120) -> None:
 class InitRequest(BaseModel):
     url: str
     prompt_explain_text: str | None = None
-    prompt_speek_text: str | None = None
+    prompt_speak_text: str | None = None
     model_name: str | None = None
+    reasoning_effort: str | None = None
 
 
 class InitResponse(BaseModel):
     request_id: str
+    source_url: str
     page_num: int
 
 
@@ -105,8 +115,9 @@ class SessionSummary(BaseModel):
     current_page: int | None = None
     is_favorited: bool = False
     prompt_explain_text: str = ""
-    prompt_speek_text: str = ""
+    prompt_speak_text: str = ""
     model_name: str = default_model_name
+    reasoning_effort: str = ""
     total_generation_count: int = 0
     total_generation_elapsed_ms: int = 0
     total_input_tokens: int = 0
@@ -123,8 +134,9 @@ class SessionSnapshot(BaseModel):
     current_page: int | None = None
     is_favorited: bool = False
     prompt_explain_text: str = ""
-    prompt_speek_text: str = ""
+    prompt_speak_text: str = ""
     model_name: str = default_model_name
+    reasoning_effort: str = ""
     total_generation_count: int = 0
     total_generation_elapsed_ms: int = 0
     total_input_tokens: int = 0
@@ -142,54 +154,152 @@ class GenerationStatusEvent(BaseModel):
 
 class FavoriteToggleResponse(BaseModel):
     request_id: str
+    page_num: int
     favorited: bool
 
 
+class FavoriteToggleRequest(BaseModel):
+    page_num: int | None = None
+
+
+class FavoriteItem(BaseModel):
+    request_id: str
+    favorite_page_num: int
+    favorited_at: str
+    paper_id: str
+    source_url: str
+    page_num: int
+    current_page: int | None = None
+    prompt_explain_text: str = ""
+    prompt_speak_text: str = ""
+    model_name: str = default_model_name
+    reasoning_effort: str = ""
+    total_generation_count: int = 0
+    total_generation_elapsed_ms: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    created_at: str
+    updated_at: str
+    is_favorited: bool = True
+
+
 class FavoriteListResponse(BaseModel):
-    items: list[SessionSummary]
+    items: list[FavoriteItem]
 
 
 class PromptResponse(BaseModel):
     prompt_explain_text: str
-    prompt_speek_text: str
+    prompt_speak_text: str
+    model_name: str
+    reasoning_effort: str
 
 
 class SessionSettingsResponse(BaseModel):
     request_id: str
     source_url: str
     prompt_explain_text: str
-    prompt_speek_text: str
+    prompt_speak_text: str
     model_name: str
+    reasoning_effort: str
 
 
 class SessionSettingsRequest(BaseModel):
     prompt_explain_text: str | None = None
-    prompt_speek_text: str | None = None
+    prompt_speak_text: str | None = None
     model_name: str | None = None
+    reasoning_effort: str | None = None
 
 
 def load_default_prompt_explain_text() -> str:
     return prompt_explain_path.read_text().strip()
 
 
-def load_default_prompt_speek_text() -> str:
-    return prompt_speek_path.read_text().strip()
+def load_default_prompt_speak_text() -> str:
+    return prompt_speak_path.read_text().strip()
+
+
+def resolve_upload_source_url(request_id: str, filename: str | None) -> str:
+    safe_filename = Path(filename).name if filename else "uploaded.pdf"
+    return f"upload://{request_id}/{safe_filename}"
+
+
+async def save_uploaded_pdf(upload_file: UploadFile, destination: Path, *, source_url: str) -> None:
+    chunk_size = 1024 * 1024
+    chunk_index = 0
+    try:
+        with destination.open("wb") as output_file:
+            while True:
+                chunk = await upload_file.read(chunk_size)
+                if not chunk:
+                    break
+                chunk_index += 1
+                try:
+                    output_file.write(chunk)
+                except OSError as error:
+                    print(
+                        f"[ERROR] Failed to write upload chunk {chunk_index} for {source_url} to {destination}: {error}",
+                        file=sys.stderr,
+                    )
+                    raise
+    finally:
+        await upload_file.close()
+
+
+def initialize_session_from_pdf(
+    request_id: str,
+    source_url: str,
+    pdf_path: Path,
+    *,
+    prompt_explain_text: str | None,
+    prompt_speak_text: str | None,
+    model_name: str | None,
+    reasoning_effort: str | None,
+) -> InitResponse:
+    work_dir = data_dir / request_id
+    image_dir = work_dir / "images"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    pages = convert_from_path(pdf_path)
+    for i, page in enumerate(pages, start=1):
+        if not (image_dir / f"{i:04d}.png").exists():
+            page.save(image_dir / f"{i:04d}.png")
+    resolved_prompt_explain_text = (
+        prompt_explain_text.strip() if prompt_explain_text and prompt_explain_text.strip() else load_default_prompt_explain_text()
+    )
+    resolved_prompt_speak_text = (
+        prompt_speak_text.strip() if prompt_speak_text and prompt_speak_text.strip() else load_default_prompt_speak_text()
+    )
+    resolved_model_name = model_name.strip() if model_name and model_name.strip() else default_model_name
+    resolved_reasoning_effort = reasoning_effort.strip() if reasoning_effort and reasoning_effort.strip() else ""
+    get_repository().upsert_document(
+        request_id,
+        source_url,
+        len(pages),
+        current_page=1,
+        prompt_explain_text=resolved_prompt_explain_text,
+        prompt_speak_text=resolved_prompt_speak_text,
+        model_name=resolved_model_name,
+        reasoning_effort=resolved_reasoning_effort,
+    )
+    broadcast_session_snapshot(request_id)
+    return InitResponse(request_id=request_id, source_url=source_url, page_num=len(pages))
 
 
 def resolve_document_prompt_explain_text(request_id: str) -> str:
     row = get_repository().get_document(request_id)
     if row is None:
         return load_default_prompt_explain_text()
-    prompt_text = str(row.get("prompt_explain_text") or row.get("prompt_text") or "").strip()
-    return prompt_text if prompt_text else load_default_prompt_explain_text()
+    prompt_explain_text = str(row.get("prompt_explain_text") or "").strip()
+    return prompt_explain_text if prompt_explain_text else load_default_prompt_explain_text()
 
 
-def resolve_document_prompt_speek_text(request_id: str) -> str:
+def resolve_document_prompt_speak_text(request_id: str) -> str:
     row = get_repository().get_document(request_id)
     if row is None:
-        return load_default_prompt_speek_text()
-    prompt_text = str(row.get("prompt_speek_text") or "").strip()
-    return prompt_text if prompt_text else load_default_prompt_speek_text()
+        return load_default_prompt_speak_text()
+    prompt_speak_text = str(row.get("prompt_speak_text") or "").strip()
+    return prompt_speak_text if prompt_speak_text else load_default_prompt_speak_text()
 
 
 def resolve_document_model_name(request_id: str) -> str:
@@ -198,6 +308,14 @@ def resolve_document_model_name(request_id: str) -> str:
         return default_model_name
     model_name = str(row.get("model_name") or "").strip()
     return model_name if model_name else default_model_name
+
+
+def resolve_document_reasoning_effort(request_id: str) -> str:
+    row = get_repository().get_document(request_id)
+    if row is None:
+        return default_reasoning_effort
+    effort = str(row.get("reasoning_effort") or "").strip()
+    return effort if effort else default_reasoning_effort
 
 
 def record_session_result(
@@ -218,7 +336,7 @@ def record_session_result(
         explanation,
         speech_text=speech_text,
         prompt_explain_text=resolve_document_prompt_explain_text(request_id),
-        prompt_speek_text=resolve_document_prompt_speek_text(request_id),
+        prompt_speak_text=resolve_document_prompt_speak_text(request_id),
         model_name=resolve_document_model_name(request_id),
         audio_status=audio_status,
         audio_error=audio_error,
@@ -234,7 +352,6 @@ def record_session_usage(
     elapsed_ms: int,
     input_tokens: int | None,
     output_tokens: int | None,
-    prompt_text: str,
     model_name: str,
     detail: dict[str, object] | None = None,
 ) -> None:
@@ -249,7 +366,6 @@ def record_session_usage(
         result_id=result_id,
         kind=kind,
         page_num=page,
-        prompt_text=prompt_text,
         model_name=model_name,
         elapsed_ms=elapsed_ms,
         input_tokens=input_tokens,
@@ -267,9 +383,10 @@ def build_session_summary(row: dict[str, object]) -> SessionSummary:
         page_num=row["page_num"],
         current_page=row["current_page"],
         is_favorited=bool(row.get("is_favorited", False)),
-        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
-        prompt_speek_text=str(row.get("prompt_speek_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", "")),
+        prompt_speak_text=str(row.get("prompt_speak_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
+        reasoning_effort=str(row.get("reasoning_effort", "")),
         total_generation_count=int(row.get("total_generation_count", 0) or 0),
         total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
         total_input_tokens=int(row.get("total_input_tokens", 0) or 0),
@@ -288,9 +405,10 @@ def build_session_snapshot(row: dict[str, object]) -> SessionSnapshot:
         page_num=row["page_num"],
         current_page=row["current_page"],
         is_favorited=bool(row.get("is_favorited", False)),
-        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
-        prompt_speek_text=str(row.get("prompt_speek_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", "")),
+        prompt_speak_text=str(row.get("prompt_speak_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
+        reasoning_effort=str(row.get("reasoning_effort", "")),
         total_generation_count=int(row.get("total_generation_count", 0) or 0),
         total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
         total_input_tokens=int(row.get("total_input_tokens", 0) or 0),
@@ -298,6 +416,30 @@ def build_session_snapshot(row: dict[str, object]) -> SessionSnapshot:
         total_cost_usd=float(row.get("total_cost_usd", 0.0) or 0.0),
         created_at=row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
         updated_at=row["updated_at"].isoformat() if hasattr(row["updated_at"], "isoformat") else str(row["updated_at"]),
+    )
+
+
+def build_favorite_item(row: dict[str, object]) -> FavoriteItem:
+    return FavoriteItem(
+        request_id=str(row["request_id"]),
+        favorite_page_num=int(row["favorite_page_num"]),
+        favorited_at=row["favorited_at"].isoformat() if hasattr(row["favorited_at"], "isoformat") else str(row["favorited_at"]),
+        paper_id=str(row["paper_id"]),
+        source_url=str(row["source_url"]),
+        page_num=int(row["page_num"]),
+        current_page=row["current_page"],
+        prompt_explain_text=str(row.get("prompt_explain_text", "")),
+        prompt_speak_text=str(row.get("prompt_speak_text", "")),
+        model_name=str(row.get("model_name", default_model_name)),
+        reasoning_effort=str(row.get("reasoning_effort", "")),
+        total_generation_count=int(row.get("total_generation_count", 0) or 0),
+        total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
+        total_input_tokens=int(row.get("total_input_tokens", 0) or 0),
+        total_output_tokens=int(row.get("total_output_tokens", 0) or 0),
+        total_cost_usd=float(row.get("total_cost_usd", 0.0) or 0.0),
+        created_at=row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
+        updated_at=row["updated_at"].isoformat() if hasattr(row["updated_at"], "isoformat") else str(row["updated_at"]),
+        is_favorited=bool(row.get("is_favorited", True)),
     )
 
 
@@ -310,8 +452,8 @@ def broadcast_session_snapshot(request_id: str) -> None:
             request_id=request_id,
             current_page=row.get("current_page"),
             is_favorited=bool(getattr(get_repository(), "is_favorited", lambda _request_id: False)(request_id)),
-            prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
-            prompt_speek_text=str(row.get("prompt_speek_text", "")),
+            prompt_explain_text=str(row.get("prompt_explain_text", "")),
+            prompt_speak_text=str(row.get("prompt_speak_text", "")),
             total_generation_count=int(row.get("total_generation_count", 0) or 0),
             total_generation_elapsed_ms=int(row.get("total_generation_elapsed_ms", 0) or 0),
             total_input_tokens=int(row.get("total_input_tokens", 0) or 0),
@@ -321,10 +463,10 @@ def broadcast_session_snapshot(request_id: str) -> None:
     )
     payload["source_url"] = row.get("source_url", "")
     payload["page_num"] = row.get("page_num")
-    payload["prompt_text"] = row.get("prompt_text", "")
-    payload["prompt_explain_text"] = row.get("prompt_explain_text", row.get("prompt_text", ""))
-    payload["prompt_speek_text"] = row.get("prompt_speek_text", "")
+    payload["prompt_explain_text"] = row.get("prompt_explain_text", "")
+    payload["prompt_speak_text"] = row.get("prompt_speak_text", "")
     payload["model_name"] = row.get("model_name", default_model_name)
+    payload["reasoning_effort"] = row.get("reasoning_effort", "")
     payload["total_generation_count"] = row.get("total_generation_count", 0)
     payload["total_generation_elapsed_ms"] = row.get("total_generation_elapsed_ms", 0)
     payload["total_input_tokens"] = row.get("total_input_tokens", 0)
@@ -340,16 +482,18 @@ def broadcast_session_page_updated(request_id: str, current_page: int) -> None:
             "type": "page_updated",
             "request_id": request_id,
             "current_page": current_page,
+            "is_favorited": get_repository().is_favorited(request_id, current_page),
         },
     )
 
 
-def broadcast_favorite_changed(request_id: str, favorited: bool) -> None:
+def broadcast_favorite_changed(request_id: str, page_num: int, favorited: bool) -> None:
     session_broadcast_hub.broadcast(
         request_id,
         {
             "type": "favorite_toggled",
             "request_id": request_id,
+            "page_num": page_num,
             "is_favorited": favorited,
         },
     )
@@ -377,11 +521,34 @@ def broadcast_generation_finished(request_id: str, page_num: int) -> None:
     )
 
 
+def broadcast_playback_started(request_id: str, page_num: int) -> None:
+    session_broadcast_hub.broadcast(
+        request_id,
+        {
+            "type": "playback_started",
+            "request_id": request_id,
+            "page_num": page_num,
+        },
+    )
+
+
+def broadcast_playback_stopped(request_id: str) -> None:
+    session_broadcast_hub.broadcast(
+        request_id,
+        {
+            "type": "playback_stopped",
+            "request_id": request_id,
+        },
+    )
+
+
 @app.get("/prompt/default")
 def prompt_default() -> PromptResponse:
     return PromptResponse(
         prompt_explain_text=load_default_prompt_explain_text(),
-        prompt_speek_text=load_default_prompt_speek_text(),
+        prompt_speak_text=load_default_prompt_speak_text(),
+        model_name=default_model_name,
+        reasoning_effort=default_reasoning_effort,
     )
 
 
@@ -389,36 +556,58 @@ def prompt_default() -> PromptResponse:
 def init(req: InitRequest) -> InitResponse:
     request_id = get_repository().create_session_id()
     work_dir = data_dir / request_id
-    image_dir = work_dir / "images"
     pdf_path = work_dir / "pdf.pdf"
     work_dir.mkdir(parents=True, exist_ok=True)
-    image_dir.mkdir(parents=True, exist_ok=True)
     if not pdf_path.exists():
         print(f"[INFO] Download PDF from {req.url}", file=sys.stderr)
         pdf_path.write_bytes(download_pdf(req.url))
-    pages = convert_from_path(pdf_path)
-    for i, page in enumerate(pages, start=1):
-        if not (image_dir / f"{i:04d}.png").exists():
-            page.save(image_dir / f"{i:04d}.png")
-    prompt_explain_text = (
-        req.prompt_explain_text.strip() if req.prompt_explain_text and req.prompt_explain_text.strip() else load_default_prompt_explain_text()
-    )
-    prompt_speek_text = (
-        req.prompt_speek_text.strip() if req.prompt_speek_text and req.prompt_speek_text.strip() else load_default_prompt_speek_text()
-    )
-    model_name = req.model_name.strip() if req.model_name and req.model_name.strip() else default_model_name
-    get_repository().upsert_document(
+    return initialize_session_from_pdf(
         request_id,
         req.url,
-        len(pages),
-        current_page=1,
-        prompt_explain_text=prompt_explain_text,
-        prompt_speek_text=prompt_speek_text,
-        model_name=model_name,
+        pdf_path,
+        prompt_explain_text=req.prompt_explain_text,
+        prompt_speak_text=req.prompt_speak_text,
+        model_name=req.model_name,
+        reasoning_effort=req.reasoning_effort,
     )
-    broadcast_session_snapshot(request_id)
 
-    return InitResponse(request_id=request_id, page_num=len(pages))
+
+@app.post("/init/upload/")
+async def init_upload(
+    file: UploadFile = File(...),
+    prompt_explain_text: str | None = Form(None),
+    prompt_speak_text: str | None = Form(None),
+    model_name: str | None = Form(None),
+    reasoning_effort: str | None = Form(None),
+) -> InitResponse:
+    request_id = get_repository().create_session_id()
+    work_dir = data_dir / request_id
+    pdf_path = work_dir / "pdf.pdf"
+    source_url = resolve_upload_source_url(request_id, file.filename)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] Upload init started for {source_url} into {pdf_path}", file=sys.stderr)
+    try:
+        await save_uploaded_pdf(file, pdf_path, source_url=source_url)
+    except Exception as error:
+        print(f"[ERROR] Upload init failed while saving {source_url}: {error}", file=sys.stderr)
+        print(f"[ERROR] Failed to store uploaded PDF for {source_url} at {pdf_path}: {error}", file=sys.stderr)
+        raise
+    print(f"[INFO] Upload PDF saved for {source_url}; starting PDF conversion", file=sys.stderr)
+    try:
+        response = initialize_session_from_pdf(
+            request_id,
+            source_url,
+            pdf_path,
+            prompt_explain_text=prompt_explain_text,
+            prompt_speak_text=prompt_speak_text,
+            model_name=model_name,
+            reasoning_effort=reasoning_effort,
+        )
+    except Exception as error:
+        print(f"[ERROR] Upload init failed after saving {source_url}: {error}", file=sys.stderr)
+        raise
+    print(f"[INFO] Upload init finished for {source_url}", file=sys.stderr)
+    return response
 
 
 @app.on_event("startup")
@@ -451,9 +640,10 @@ def session_settings(request_id: str) -> SessionSettingsResponse:
     return SessionSettingsResponse(
         request_id=request_id,
         source_url=str(row["source_url"]),
-        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
-        prompt_speek_text=str(row.get("prompt_speek_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", "")),
+        prompt_speak_text=str(row.get("prompt_speak_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
+        reasoning_effort=str(row.get("reasoning_effort", "")),
     )
 
 
@@ -462,8 +652,9 @@ def update_session_settings(request_id: str, req: SessionSettingsRequest) -> Ses
     row = get_repository().update_session_settings(
         request_id,
         prompt_explain_text=req.prompt_explain_text,
-        prompt_speek_text=req.prompt_speek_text,
+        prompt_speak_text=req.prompt_speak_text,
         model_name=req.model_name,
+        reasoning_effort=req.reasoning_effort,
     )
     if row is None:
         raise fastapi.HTTPException(status_code=404, detail="session not found")
@@ -478,9 +669,10 @@ def update_session_settings(request_id: str, req: SessionSettingsRequest) -> Ses
     return SessionSettingsResponse(
         request_id=request_id,
         source_url=str(row["source_url"]),
-        prompt_explain_text=str(row.get("prompt_explain_text", row.get("prompt_text", ""))),
-        prompt_speek_text=str(row.get("prompt_speek_text", "")),
+        prompt_explain_text=str(row.get("prompt_explain_text", "")),
+        prompt_speak_text=str(row.get("prompt_speak_text", "")),
         model_name=str(row.get("model_name", default_model_name)),
+        reasoning_effort=str(row.get("reasoning_effort", "")),
     )
 
 
@@ -488,28 +680,47 @@ def update_session_settings(request_id: str, req: SessionSettingsRequest) -> Ses
 def favorites(limit: int = 20) -> FavoriteListResponse:
     repository = get_repository()
     return FavoriteListResponse(
-        items=[build_session_summary(row) for row in repository.list_favorites(limit=limit)]
+        items=[build_favorite_item(row) for row in repository.list_favorites(limit=limit)]
     )
 
 
 @app.post("/favorites/{request_id}/toggle")
-def favorite_toggle(request_id: str) -> FavoriteToggleResponse:
+def favorite_toggle(request_id: str, req: FavoriteToggleRequest | None = None) -> FavoriteToggleResponse:
     try:
-        favorited = get_repository().toggle_favorite(request_id)
+        page_num = req.page_num if req is not None else None
+        favorited = get_repository().toggle_favorite(request_id, page_num=page_num)
     except KeyError as error:
         raise fastapi.HTTPException(status_code=404, detail="session not found") from error
-    broadcast_favorite_changed(request_id, favorited)
-    return FavoriteToggleResponse(request_id=request_id, favorited=favorited)
+    current = get_repository().get_document(request_id)
+    resolved_page_num = int(page_num if page_num is not None else current["current_page"]) if current is not None else 1
+    broadcast_favorite_changed(request_id, resolved_page_num, favorited)
+    return FavoriteToggleResponse(request_id=request_id, page_num=resolved_page_num, favorited=favorited)
 
 
 @app.post("/sessions/{request_id}/favorite")
-def favorite_toggle_session(request_id: str) -> FavoriteToggleResponse:
-    return favorite_toggle(request_id)
+def favorite_toggle_session(request_id: str, req: FavoriteToggleRequest | None = None) -> FavoriteToggleResponse:
+    return favorite_toggle(request_id, req)
 
 
 @app.post("/sessions/{request_id}/favorite/toggle")
-def favorite_toggle_session_alias(request_id: str) -> FavoriteToggleResponse:
-    return favorite_toggle(request_id)
+def favorite_toggle_session_alias(request_id: str, req: FavoriteToggleRequest | None = None) -> FavoriteToggleResponse:
+    return favorite_toggle(request_id, req)
+
+
+class PlaybackStartedRequest(BaseModel):
+    page_num: int
+
+
+@app.post("/sessions/{request_id}/playback")
+def session_playback_started(request_id: str, req: PlaybackStartedRequest) -> dict[str, object]:
+    broadcast_playback_started(request_id, req.page_num)
+    return {"request_id": request_id, "page_num": req.page_num}
+
+
+@app.post("/sessions/{request_id}/playback/stop")
+def session_playback_stopped(request_id: str) -> dict[str, object]:
+    broadcast_playback_stopped(request_id)
+    return {"request_id": request_id}
 
 
 @app.websocket("/sessions/ws")
@@ -534,10 +745,10 @@ async def session_ws(websocket: WebSocket) -> None:
                 "page_num": snapshot_row.get("page_num"),
                 "current_page": snapshot_row.get("current_page"),
                 "is_favorited": repository.is_favorited(request_id),
-                "prompt_text": snapshot_row.get("prompt_text", ""),
-                "prompt_explain_text": snapshot_row.get("prompt_explain_text", snapshot_row.get("prompt_text", "")),
-                "prompt_speek_text": snapshot_row.get("prompt_speek_text", ""),
+                "prompt_explain_text": snapshot_row.get("prompt_explain_text", ""),
+                "prompt_speak_text": snapshot_row.get("prompt_speak_text", ""),
                 "model_name": snapshot_row.get("model_name", default_model_name),
+                "reasoning_effort": snapshot_row.get("reasoning_effort", ""),
                 "total_generation_count": snapshot_row.get("total_generation_count", 0),
                 "total_generation_elapsed_ms": snapshot_row.get("total_generation_elapsed_ms", 0),
                 "total_input_tokens": snapshot_row.get("total_input_tokens", 0),
@@ -582,6 +793,7 @@ class ExplainRequest(BaseModel):
 
 class ExplainResponse(BaseModel):
     explanation: str
+    speech_text: str = ""
     audio_status: Literal["ready", "failed"] = "ready"
     audio_error: str | None = None
 
@@ -595,8 +807,6 @@ class GenerationResult(BaseModel):
 
 speaker = VoiceVoxSpeaker(
     speaker_id="1",
-    speed=1.5,
-    volume=4,
     url=voicevox_url,
 )
 
@@ -638,10 +848,15 @@ def explain(req: ExplainRequest) -> ExplainResponse:
                 priority=10,
             )
 
-    return ExplainResponse(explanation=explanation, audio_status=audio_status, audio_error=audio_error)
+    return ExplainResponse(
+        explanation=explanation,
+        speech_text=generation_result.speech_text,
+        audio_status=audio_status,
+        audio_error=audio_error,
+    )
 
 
-def generate_explanation(image_path: Path, prompt_explain_text: str, model_name: str):
+def generate_explanation(image_path: Path, prompt_explain_text: str, model_name: str, reasoning_effort: str):
     image = Image.open(image_path)
     image_type = "png"
     image_content = to_image_content(image, image_type)
@@ -661,12 +876,12 @@ def generate_explanation(image_path: Path, prompt_explain_text: str, model_name:
         ],
         json_mode=False,
         model=model_name,
-        reasoning_effort=default_reasoning_effort,
+        reasoning_effort=reasoning_effort or default_reasoning_effort,
     )
     return response
 
 
-def generate_speech_text(explanation: str, prompt_speek_text: str, model_name: str):
+def generate_speech_text(explanation: str, prompt_speak_text: str, model_name: str, reasoning_effort: str):
     response = run_gpt(
         client,
         messages=[
@@ -675,7 +890,7 @@ def generate_speech_text(explanation: str, prompt_speek_text: str, model_name: s
                 "content": [
                     {
                         "type": "text",
-                        "text": prompt_speek_text,
+                        "text": prompt_speak_text,
                     },
                     {
                         "type": "text",
@@ -686,7 +901,7 @@ def generate_speech_text(explanation: str, prompt_speek_text: str, model_name: s
         ],
         json_mode=False,
         model=model_name,
-        reasoning_effort=default_reasoning_effort,
+        reasoning_effort=reasoning_effort or default_reasoning_effort,
     )
     return response
 
@@ -725,15 +940,19 @@ def generation_task(
     try:
         speech_path = cache_path.with_name(f"speak_{page:04d}.txt")
         prompt_explain_text = resolve_document_prompt_explain_text(request_id)
-        prompt_speek_text = resolve_document_prompt_speek_text(request_id)
+        prompt_speak_text = resolve_document_prompt_speak_text(request_id)
         model_name = resolve_document_model_name(request_id)
+        reasoning_effort = resolve_document_reasoning_effort(request_id)
         cached_result = get_repository().get_result(
             request_id,
             page,
             prompt_explain_text=prompt_explain_text,
-            prompt_speek_text=prompt_speek_text,
+            prompt_speak_text=prompt_speak_text,
             model_name=model_name,
         )
+        cached_speech_text = ""
+        if cached_result is not None:
+            cached_speech_text = str(cached_result.get("speech_text") or "")
         if (
             not force
             and cached_result is not None
@@ -757,6 +976,7 @@ def generation_task(
                 image_path,
                 prompt_explain_text,
                 model_name,
+                reasoning_effort,
             )
             explanation = gpt_result.content
             cache_path.write_text(explanation)
@@ -766,8 +986,9 @@ def generation_task(
         try:
             gpt_speech_result = generate_speech_text(
                 explanation,
-                prompt_speek_text,
+                prompt_speak_text,
                 model_name,
+                reasoning_effort,
             )
             speech_text = gpt_speech_result.content
             speech_path.write_text(speech_text)
@@ -778,9 +999,9 @@ def generation_task(
                 request_id,
                 page,
                 explanation,
-                speech_text="",
+                speech_text=cached_speech_text,
                 prompt_explain_text=prompt_explain_text,
-                prompt_speek_text=prompt_speek_text,
+                prompt_speak_text=prompt_speak_text,
                 model_name=model_name,
                 audio_status="failed",
                 audio_error=str(exc),
@@ -794,7 +1015,6 @@ def generation_task(
                 elapsed_ms=elapsed_ms,
                 input_tokens=gpt_result.input_tokens,
                 output_tokens=gpt_result.output_tokens,
-                prompt_text=prompt_explain_text,
                 model_name=model_name,
                 detail={
                     "kind": "explanation",
@@ -810,7 +1030,6 @@ def generation_task(
                 elapsed_ms=0,
                 input_tokens=0,
                 output_tokens=0,
-                prompt_text=prompt_speek_text,
                 model_name=model_name,
                 detail={
                     "kind": "speech",
@@ -819,9 +1038,14 @@ def generation_task(
                 },
             )
             broadcast_session_snapshot(request_id)
-            return GenerationResult(explanation=explanation, speech_text="", audio_status="failed", audio_error=str(exc))
+            return GenerationResult(
+                explanation=explanation,
+                speech_text=cached_speech_text,
+                audio_status="failed",
+                audio_error=str(exc),
+            )
         try:
-            text_to_wav(speech_text, speaker, audio_path, max_length=250)
+            text_to_wav(speech_text, speaker, audio_path)
         except Exception as exc:  # noqa: BLE001
             print(f"[ERROR] Failed to generate audio for {image_path}: {exc}", file=sys.stderr)
             print(f"[ERROR] Speech text was: {speech_text}", file=sys.stderr)
@@ -832,7 +1056,7 @@ def generation_task(
                 explanation,
                 speech_text=speech_text,
                 prompt_explain_text=prompt_explain_text,
-                prompt_speek_text=prompt_speek_text,
+                prompt_speak_text=prompt_speak_text,
                 model_name=model_name,
                 audio_status="failed",
                 audio_error=str(exc),
@@ -846,7 +1070,6 @@ def generation_task(
                 elapsed_ms=elapsed_ms,
                 input_tokens=gpt_result.input_tokens,
                 output_tokens=gpt_result.output_tokens,
-                prompt_text=prompt_explain_text,
                 model_name=model_name,
                 detail={
                     "kind": "explanation",
@@ -862,7 +1085,6 @@ def generation_task(
                 elapsed_ms=0,
                 input_tokens=gpt_speech_result.input_tokens,
                 output_tokens=gpt_speech_result.output_tokens,
-                prompt_text=prompt_speek_text,
                 model_name=model_name,
                 detail={
                     "kind": "speech",
@@ -882,7 +1104,7 @@ def generation_task(
             explanation,
             speech_text=speech_text,
             prompt_explain_text=prompt_explain_text,
-            prompt_speek_text=prompt_speek_text,
+            prompt_speak_text=prompt_speak_text,
             model_name=model_name,
             audio_status="ready",
             audio_error=None,
@@ -896,7 +1118,6 @@ def generation_task(
             elapsed_ms=elapsed_ms,
             input_tokens=gpt_result.input_tokens,
             output_tokens=gpt_result.output_tokens,
-            prompt_text=prompt_explain_text,
             model_name=model_name,
             detail={
                 "kind": "explanation",
@@ -912,7 +1133,6 @@ def generation_task(
             elapsed_ms=0,
             input_tokens=gpt_speech_result.input_tokens,
             output_tokens=gpt_speech_result.output_tokens,
-            prompt_text=prompt_speek_text,
             model_name=model_name,
             detail={
                 "kind": "speech",
@@ -968,7 +1188,7 @@ def audio(req: ExplainRequest) -> fastapi.responses.FileResponse:
                 req.request_id,
                 req.page,
                 prompt_explain_text=resolve_document_prompt_explain_text(req.request_id),
-                prompt_speek_text=resolve_document_prompt_speek_text(req.request_id),
+                prompt_speak_text=resolve_document_prompt_speak_text(req.request_id),
                 model_name=resolve_document_model_name(req.request_id),
             )
             if result_row is None:
@@ -995,6 +1215,7 @@ def regenerate(req: ExplainRequest) -> ExplainResponse:
 
     return ExplainResponse(
         explanation=generation_result.explanation,
+        speech_text=generation_result.speech_text,
         audio_status=generation_result.audio_status,
         audio_error=generation_result.audio_error,
     )

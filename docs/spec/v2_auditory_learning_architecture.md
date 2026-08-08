@@ -130,12 +130,12 @@
 - result は document の処理結果であり、同時に session にも属する。
 - URL と document の対応は DB に寄せる。
 - 説明文は result として DB に寄せる。
-- document ごとの既定プロンプトは `prompt_explain.txt` と `prompt_speek.txt` の 2 系統に分ける。
+- document ごとの既定プロンプトは `prompt_explain.txt` と `prompt_speak.txt` の 2 系統に分ける。
 - 解説用プロンプトは `AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
-- 読み上げ用プロンプトは `AUDITORY_LEARNING_V2_PROMPT_SPEEK_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
+- 読み上げ用プロンプトは `AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH` で指すファイルから読む。相対パスはリポジトリルート基準で解決する。
 - session ごとの prompt / model 設定は DB に寄せる。解説用プロンプトと読み上げ用プロンプトは別々に保持する。
-- 既定のモデル名は `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` で与える。既定値は `gpt-5.4-mini` とする。
-- 既定の reasoning effort は `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` で与える。設定値は `middle` を受け取り、OpenAI へ渡す値は `medium` に正規化する。
+- 既定のモデル名は `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` で与える。既定値は `gpt-5.6-luna` とする。
+- 既定の reasoning effort は `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` で与える。既定値は `medium` とする。
 - 生成物は `_data` / `_cache` に置く。
 - document メタデータは `papers`、session 状態は `sessions`、処理結果は `session_results` に閉じ込める。
 - 利用情報は `session_usage_records` に append-only で積む。
@@ -144,7 +144,7 @@
 - session 一覧は `sessions` 系の正本から返す API を用意し、resume の入口にする。
 - `sessions` には少なくとも `current_page` と `page_num` を持たせ、一覧と snapshot から続き位置を復元できるようにする。
 - `GET /sessions/` は一覧、`GET /sessions/{request_id}` は snapshot として扱う。
-- `GET /favorites/` は favorite 一覧、`POST /favorites/{request_id}/toggle` は favorite 切り替えとして扱う。
+- `GET /favorites/` は favorite 一覧、`POST /favorites/{request_id}/toggle` は favorite 切り替えとして扱う。favorite の保存単位は session と page の組で、`request_id` で session を特定し、`page_num` があればそれを、なければその時点の `current_page` を対象にする。
 - `GET /sessions/{request_id}/settings` と `PATCH /sessions/{request_id}/settings` で解説用プロンプト、読み上げ用プロンプト、model を読む・更新する。
 - `POST /sessions/{request_id}/favorite` は favorite toggle の session 版エイリアスとして扱う。
 - `session_results` は session ごとの処理結果の最新状態を持つ。1 つの result は 1 つの paper と 1 つの session に属する。
@@ -158,13 +158,14 @@
 
 ## 画面構成
 - `開始` は start page に置く。
+- start page では PDF URL の入力に加えて、PDF ファイルのアップロード開始もできる。
 - `続きから` は start page に置く。
 - `お気に入り` は独立ページとして置く。
 - `session 一覧`
 - `現在の session`
 - `現在の session` では URL は表示するだけにし、URL 入力と開始操作は置かない。
 - `現在の session` では URL を変更でき、その URL を再生する操作を置く。
-- `詳細` の折りたたみには prompt と model を置き、session の累積統計とコストも表示する。
+- `詳細` の折りたたみには prompt と model を置き、保存ボタンの下に読み上げ文を表示し、session の累積統計とコストも表示する。
 - `開始・続きから` の一覧は polling で更新し、手動更新ボタンは置かない。
 
 `quick` と同じく、一覧は再開導線として扱う。

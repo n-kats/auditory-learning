@@ -54,7 +54,12 @@ afterEach(() => {
 describe("loadDocumentPage", () => {
   it("streams image and explanation before the final success event", async () => {
     const image = deferred<Blob>();
-    const explanation = deferred<{ explanation: string; audio_status?: "ready" | "failed"; audio_error?: string | null }>();
+    const explanation = deferred<{
+      explanation: string;
+      speech_text: string;
+      audio_status?: "ready" | "failed";
+      audio_error?: string | null;
+    }>();
     const audio = deferred<Blob>();
     const events: DocumentSessionFlowEvent[] = [];
     const imageStore = new FakeObjectUrlStore();
@@ -76,7 +81,7 @@ describe("loadDocumentPage", () => {
       sequenceRef: { current: 0 },
     });
 
-    explanation.resolve({ explanation: "streamed explanation", audio_status: "ready" });
+    explanation.resolve({ explanation: "streamed explanation", speech_text: "streamed speech", audio_status: "ready" });
     await Promise.resolve();
 
     expect(events.some((event) => event.type === "page_explanation_loaded")).toBe(true);

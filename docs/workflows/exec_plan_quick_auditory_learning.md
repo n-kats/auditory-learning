@@ -6,7 +6,7 @@
 - 確認方法: `quick-auditory-learning/docker-compose.yml` で backend / frontend / postgres を起動し、backend のヘルスチェックとフロントエンドの表示を確認する。
 
 ## 状況と前提整理
-- レポジトリの現状: 既存の `auditory_learning/` は PDF 向けであり、今回の `quick-auditory-learning/` は別ディレクトリとして追加する。
+- レポジトリの現状: 既存の `v1/` は PDF 向けであり、今回の `quick-auditory-learning/` は別ディレクトリとして追加する。
 - 主要ファイル/モジュール: `quick-auditory-learning/backend/src/quick_auditory_learning/`, `quick-auditory-learning/frontend/`, `quick-auditory-learning/docker-compose.yml`, `scripts/launch_quick_auditory_learning.sh`。
 - 用語定義:
   - JSONL: 1 行 1 レコードの JSON 形式のアブスト一覧。

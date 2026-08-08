@@ -1,4 +1,4 @@
-import { forwardRef, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { forwardRef, useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -20,12 +20,16 @@ type WorkspaceViewProps = {
   previewPanY: number;
   workspaceGridColumns: string;
   onDividerPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onPreviewWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
+  onPreviewWheel: (event: WheelEvent) => void;
   onPreviewPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onMobileWorkspaceTabChange: (tab: "explanation" | "preview") => void;
 };
 
 export const WorkspaceView = forwardRef<HTMLElement, WorkspaceViewProps>(function WorkspaceView(props, ref) {
+  const [previewStageElement, setPreviewStageElement] = useState<HTMLDivElement | null>(null);
+  const previewStageRef = useCallback((element: HTMLDivElement | null) => {
+    setPreviewStageElement(element);
+  }, []);
   const {
     currentPage,
     deferredExplanation,
@@ -47,6 +51,21 @@ export const WorkspaceView = forwardRef<HTMLElement, WorkspaceViewProps>(functio
     onPreviewPointerDown,
     onMobileWorkspaceTabChange,
   } = props;
+
+  useEffect(() => {
+    if (!previewStageElement) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      onPreviewWheel(event);
+    };
+
+    previewStageElement.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      previewStageElement.removeEventListener("wheel", handleWheel);
+    };
+  }, [onPreviewWheel, previewStageElement]);
 
   const explanationCard = (
     <section className="card explanation-card">
@@ -84,9 +103,9 @@ export const WorkspaceView = forwardRef<HTMLElement, WorkspaceViewProps>(functio
 
       {imageUrl ? (
         <div
+          ref={previewStageRef}
           className="preview-stage"
           onPointerDown={onPreviewPointerDown}
-          onWheel={onPreviewWheel}
           title="スクロールで拡大縮小"
           style={{ cursor: previewZoom > 1 ? "grab" : "zoom-in" }}
         >

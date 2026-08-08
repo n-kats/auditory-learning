@@ -26,8 +26,9 @@ class SessionSyncEvent:
     request_id: str
     current_page: int | None = None
     is_favorited: bool | None = None
+    page_num: int | None = None
     prompt_explain_text: str | None = None
-    prompt_speek_text: str | None = None
+    prompt_speak_text: str | None = None
     total_generation_count: int | None = None
     total_generation_elapsed_ms: int | None = None
     total_input_tokens: int | None = None
@@ -74,8 +75,13 @@ def apply_session_sync_event(state: SessionSyncState, event: SessionSyncEvent) -
         if event.current_page is not None and next_state.current_page != event.current_page:
             next_state = replace(next_state, current_page=event.current_page)
             changed = True
+        if event.is_favorited is not None and next_state.is_favorited != event.is_favorited:
+            next_state = replace(next_state, is_favorited=event.is_favorited)
+            changed = True
     elif event.type == "favorite_toggled":
         next_is_favorited = bool(event.is_favorited)
+        if event.page_num is not None and next_state.current_page is not None and next_state.current_page != event.page_num:
+            return next_state
         if next_state.is_favorited != next_is_favorited:
             next_state = replace(next_state, is_favorited=next_is_favorited)
             changed = True
@@ -138,7 +144,7 @@ def build_session_snapshot_event(
     is_favorited: bool,
     *,
     prompt_explain_text: str | None = None,
-    prompt_speek_text: str | None = None,
+    prompt_speak_text: str | None = None,
     total_generation_count: int | None = None,
     total_generation_elapsed_ms: int | None = None,
     total_input_tokens: int | None = None,
@@ -151,7 +157,7 @@ def build_session_snapshot_event(
         current_page=current_page,
         is_favorited=is_favorited,
         prompt_explain_text=prompt_explain_text,
-        prompt_speek_text=prompt_speek_text,
+        prompt_speak_text=prompt_speak_text,
         total_generation_count=total_generation_count,
         total_generation_elapsed_ms=total_generation_elapsed_ms,
         total_input_tokens=total_input_tokens,

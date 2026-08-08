@@ -1,0 +1,61 @@
+- 目的:
+  - セッション詳細の保存ボタンの下に、生成済みの読み上げ結果を表示する。
+
+- 方針:
+  - backend の `/explain/` と `/regenerate/` で返す `speech_text` を frontend の session state に流す。
+  - 保存ボタンの下には `speech_text` を read-only 表示する。
+  - レイアウトは既存の詳細パネルに合わせる。
+
+- 確認:
+  - frontend の test と build を実行する。
+  - backend の関連テストを実行する。
+
+- 完了:
+  - frontend の test 成功
+  - frontend の build 成功
+  - backend の関連テスト成功
+  - 読み上げ失敗時も直前の `speech_text` を空で上書きしないように修正
+  - セッション開始・再開時の object URL 破棄を遅延させて `ERR_FILE_NOT_FOUND` の発生源を抑制
+  - VOICEVOX の 5xx に対して各チャンク最大 4 回試行するように修正
+  - VOICEVOX に渡す読み上げ文を 120 文字前後で分割し、改行も分割対象に追加
+  - 分割後に失敗したチャンクはさらに細かく切り直し、その分割過程がログで分かるように修正
+  - 再生ボタンを開始専用にして、2 度押しで停止に戻らないように修正
+
+- 追加要望:
+  - PDF アップロード方式を start page に追加する。
+  - URL 入力と同じ初期化フローに乗せる。
+
+- 進捗:
+  - PDF アップロードの初期化 API を追加した。
+  - start page の詳細欄ではなく主導線にファイル選択とアップロード開始を追加した。
+  - 現在のセッション画面にも PDF アップロード導線を追加した。
+  - `upload://<request_id>/<filename>` 形式の `source_url` を記録するようにした。
+  - `python-multipart` を backend 依存に追加した。
+  - backend の upload テストを追加し、frontend の test / build と backend の関連テストが通ることを確認した。
+  - session 側の URL ボタンと upload の開始ボタンを同じ `start-button` 系の見た目に揃えた。
+  - ボタン幅をさらに詰めて、`開始` / `Up&開始` / `再開` を同じ固定幅で扱うようにした。
+  - セッション側 upload 行が wrap して右端がずれる問題を修正し、URL 行の下線を残したまま余白を詰めた。
+  - 開始ページの並び替えは元に戻した。
+  - session ページの URL 行下線位置を元に戻し、PC 画面での upload 行を grid 化して右端を揃えた。
+  - session ページの区切り線を PDF 選択行の下へ移し、control 領域に PDF 選択が入って見える問題を避けた。
+  - session ページの upload 行を、`PDF を選ぶ` を左・`Up&開始` を右端固定に戻して、開始ボタンと同じ右端基準に合わせた。
+  - session ページの upload 行は右寄せ前提に戻し、`PDF を選ぶ` を control 領域に押し出さない形に修正した。
+  - session ページの upload UI を 2 行に分け、`PDF を選ぶ` と `Up&開始` の位置干渉をなくした。
+  - session ページの `PDF を選ぶ` と `Up&開始` を同じ行の 2 列固定に戻し、右端が揃うようにした。
+  - その後、`PDF を選ぶ` を自然幅に戻し、`Up&開始` を `margin-left:auto` で右端固定に戻した。
+  - session ページの upload 行は 1 行の flex に戻し、`PDF を選ぶ` は自然幅のままにした。
+  - session ページの upload 行を 1 行の grid に戻し、`PDF を選ぶ` と `Up&開始` を同じ配置ルールに載せ直した。
+  - session ページの `PDF を選ぶ` を右寄せへ移し、`Up&開始` と同じ右側基準に寄せた。
+  - frontend の API URL 結合を `new URL` ベースに変え、`apiBaseUrl` の末尾スラッシュや base path があっても upload の URL が壊れないようにした。
+  - frontend の API は相対パスで送るように戻し、Vite の proxy を通して backend に転送するようにした。
+  - frontend の API は backend の絶対 URL に戻し、CORS 許可で直接叩く形に戻した。
+  - backend の upload 受信を 1 回の全量読み込みから chunk 単位のストリーミング書き込みに変え、connection reset を起こしやすい大きな PDF の負荷を下げた。
+  - upload 保存時の失敗ログを、保存先・元の upload URL・chunk 番号付きで出すようにした。
+  - upload の entry/保存完了/変換開始/変換完了を backend ログに出すようにした。
+  - frontend / backend の API 接続は CORS 前提の絶対 URL に戻し、`localhost` の既定値は削除した。
+  - `AUDITORY_LEARNING_V2_HOST` は残し、`compose` 側の URL 組み立てに使うだけにした。
+  - backend の CORS は `AUDITORY_LEARNING_V2_FRONTEND_URL` を優先し、同一 host の別 port でも通るようにした。
+  - 現在の session upload 行に、`PDF を選ぶ` の左へ選択中 PDF のファイル名を右寄せで表示するようにした。
+  - そのファイル名表示をセル内右端に寄せ直した。
+  - 続きからの session でも、`upload://...` の `sourceUrl` から PDF ファイル名を復元して表示するようにした。
+  - favicon は `v1` と同じ `favicon.ico` を `v2/frontend/public/` に置き、`index.html` から参照するようにする。

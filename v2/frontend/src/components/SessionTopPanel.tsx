@@ -1,7 +1,8 @@
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { ControlIcon } from "./ControlIcon";
 import { getSpeakerToggleButtonClassName } from "../sessionTopPanelState";
+import { buildUploadedPdfFileName } from "../utils/appText";
 
 function formatElapsedMs(value: number): string {
   if (value < 1000) {
@@ -13,9 +14,12 @@ function formatElapsedMs(value: number): string {
 type SessionTopPanelProps = {
   mode?: "start" | "session";
   draftUrl: string;
+  sourceUrl: string;
   draftExplainPromptText?: string;
-  draftSpeekPromptText?: string;
+  draftSpeakPromptText?: string;
+  speechText?: string;
   draftModelName?: string;
+  draftReasoningEffort?: string;
   isBusy: boolean;
   isInitializing: boolean;
   isInitialized: boolean;
@@ -23,12 +27,14 @@ type SessionTopPanelProps = {
   isRegenerating: boolean;
   isPlaying: boolean;
   isSavingSessionSettings?: boolean;
+  hasUnsavedChanges?: boolean;
   totalGenerationCount?: number;
   totalGenerationElapsedMs?: number;
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCostUsd?: number;
   autoAdvance: boolean;
+  playSyncEnabled: boolean;
   canGoNext: boolean;
   canGoPrevious: boolean;
   canRegenerate: boolean;
@@ -40,10 +46,12 @@ type SessionTopPanelProps = {
   speakerEnabled: boolean;
   volume: number;
   onAutoAdvanceChange: (checked: boolean) => void;
+  onPlaySyncEnabledChange: (checked: boolean) => void;
   onDraftUrlChange?: (value: string) => void;
   onDraftExplainPromptTextChange?: (value: string) => void;
-  onDraftSpeekPromptTextChange?: (value: string) => void;
+  onDraftSpeakPromptTextChange?: (value: string) => void;
   onDraftModelNameChange?: (value: string) => void;
+  onDraftReasoningEffortChange?: (value: string) => void;
   onJumpPage: () => void;
   onJumpPageValueChange: (value: string) => void;
   onMoveNext: () => void;
@@ -53,6 +61,7 @@ type SessionTopPanelProps = {
   onStopPlayback: () => void;
   onSaveSessionSettings?: () => void;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  onUpload?: (file: File) => void;
   onToggleFavorite: () => void;
   onToggleSpeaker: () => void;
   onVolumeChange: (value: number) => void;
@@ -62,9 +71,12 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
   const {
     mode = "start",
     draftUrl,
+    sourceUrl,
     draftExplainPromptText,
-    draftSpeekPromptText,
+    draftSpeakPromptText,
+    speechText,
     draftModelName,
+    draftReasoningEffort,
     isBusy,
     isInitializing,
     isInitialized,
@@ -72,12 +84,14 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
     isRegenerating,
     isPlaying,
     isSavingSessionSettings,
+    hasUnsavedChanges = false,
     totalGenerationCount = 0,
     totalGenerationElapsedMs = 0,
     totalInputTokens = 0,
     totalOutputTokens = 0,
     totalCostUsd = 0,
     autoAdvance,
+    playSyncEnabled,
     canGoNext,
     canGoPrevious,
     canRegenerate,
@@ -89,10 +103,12 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
     speakerEnabled,
     volume,
     onAutoAdvanceChange,
+    onPlaySyncEnabledChange,
     onDraftUrlChange,
     onDraftExplainPromptTextChange,
-    onDraftSpeekPromptTextChange,
+    onDraftSpeakPromptTextChange,
     onDraftModelNameChange,
+    onDraftReasoningEffortChange,
     onJumpPage,
     onJumpPageValueChange,
     onMoveNext,
@@ -102,10 +118,13 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
     onStopPlayback,
     onSaveSessionSettings,
     onSubmit,
+    onUpload,
     onToggleFavorite,
     onToggleSpeaker,
     onVolumeChange,
   } = props;
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const uploadFileName = selectedPdfFile?.name ?? buildUploadedPdfFileName(sourceUrl);
 
   const sessionDetails =
     mode === "session" && onSaveSessionSettings ? (
@@ -148,8 +167,8 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
             <label className="field prompt-field">
               <span>読み上げ用プロンプト</span>
               <textarea
-                value={draftSpeekPromptText ?? ""}
-                onChange={(event) => onDraftSpeekPromptTextChange?.(event.currentTarget.value)}
+                value={draftSpeakPromptText ?? ""}
+                onChange={(event) => onDraftSpeakPromptTextChange?.(event.currentTarget.value)}
                 rows={10}
                 spellCheck={false}
               />
@@ -163,9 +182,22 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
               onChange={(event) => onDraftModelNameChange?.(event.currentTarget.value)}
             />
           </label>
-          <button className="primary-button session-settings-save" type="button" onClick={onSaveSessionSettings} disabled={isSavingSessionSettings}>
+          <label className="field model-field">
+            <span>Reasoning Effort</span>
+            <input
+              type="text"
+              value={draftReasoningEffort ?? ""}
+              onChange={(event) => onDraftReasoningEffortChange?.(event.currentTarget.value)}
+              placeholder="例: low, medium, high"
+            />
+          </label>
+          <button className="primary-button session-settings-save" type="button" onClick={onSaveSessionSettings} disabled={isSavingSessionSettings || !hasUnsavedChanges}>
             {isSavingSessionSettings ? "保存中..." : "保存"}
           </button>
+          <div className="session-reading-block" aria-label="読み上げ文">
+            <span className="session-reading-label">読み上げ文</span>
+            <div className="session-reading-text">{speechText && speechText.trim().length > 0 ? speechText : "未生成"}</div>
+          </div>
         </div>
       </details>
     ) : null;
@@ -173,38 +205,55 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
   return (
     <section className="card top-panel">
       <div className="top-panel-row top-panel-url">
-        {mode === "start" ? (
-          <form className="url-form" onSubmit={onSubmit}>
-            <span className="url-badge">PDF URL</span>
-            <label className="field url-field" aria-label="PDF URL">
-              <input
-                type="url"
-                value={draftUrl}
-                onChange={(event) => onDraftUrlChange?.(event.currentTarget.value)}
-                placeholder="https://arxiv.org/pdf/... または https://openreview.net/pdf?id=..."
-              />
-            </label>
-            <button className="primary-button" type="submit" disabled={isInitializing}>
-              {isInitializing ? "初期化中..." : "開始"}
-            </button>
-          </form>
-        ) : (
-          <form className="url-form" onSubmit={onSubmit}>
-            <span className="url-badge">PDF URL</span>
-            <label className="field url-field" aria-label="PDF URL">
-              <input
-                type="url"
-                value={draftUrl}
-                onChange={(event) => onDraftUrlChange?.(event.currentTarget.value)}
-                placeholder="https://arxiv.org/pdf/... または https://openreview.net/pdf?id=..."
-              />
-            </label>
-            <button className="primary-button" type="submit" disabled={isInitializing}>
-              {isInitializing ? "再生中..." : "再生"}
-            </button>
-          </form>
-        )}
+        <form className="url-form" onSubmit={onSubmit}>
+          <span className="url-badge">PDF URL</span>
+          <label className="field url-field" aria-label="PDF URL">
+            <input
+              type="url"
+              value={draftUrl}
+              onChange={(event) => onDraftUrlChange?.(event.currentTarget.value)}
+              placeholder="https://arxiv.org/pdf/... または https://openreview.net/pdf?id=..."
+            />
+          </label>
+          <button className={`start-button${mode === "session" ? " session-submit-button" : ""}`} type="submit" disabled={isInitializing}>
+            {isInitializing ? "初期化中..." : "開始"}
+          </button>
+        </form>
       </div>
+
+      {mode === "session" && onUpload ? (
+        <div className="top-panel-row top-panel-upload">
+          <div className="upload-launch-row upload-launch-row-session">
+            <input
+              id="session-upload-input"
+              className="upload-input"
+              type="file"
+              accept="application/pdf"
+              onChange={(event) => setSelectedPdfFile(event.currentTarget.files?.[0] ?? null)}
+            />
+            <div className="upload-selected-file" aria-label="選択中のPDFファイル名">
+              {uploadFileName ?? ""}
+            </div>
+            <label className="upload-picker-button ghost-button" htmlFor="session-upload-input">
+              <ControlIcon kind="upload" />
+              PDF を選ぶ
+            </label>
+            <button
+              type="button"
+              className="start-button upload-start-button"
+              disabled={isInitializing || selectedPdfFile === null}
+              onClick={() => {
+                if (!selectedPdfFile) {
+                  return;
+                }
+                onUpload(selectedPdfFile);
+              }}
+            >
+              {isInitializing ? "処理中..." : "Up&開始"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="top-panel-row top-panel-controls">
         <div className="control-toolbar-left">
@@ -217,7 +266,7 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
               type="button"
               onClick={onToggleSpeaker}
               disabled={!isInitialized}
-              aria-label={speakerEnabled ? "音声を停止" : "音声を再生"}
+              aria-label="音声を再生"
               aria-pressed={isPlaying}
             >
               <ControlIcon kind="play" />
@@ -239,16 +288,16 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
           <div className="audio-controls" role="group" aria-label="音声設定">
             <label className="audio-control-label">
               <span>音量</span>
-              <input type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} />
+              <input type="range" min={0} max={3} step={0.05} value={volume} onChange={(event) => onVolumeChange(Number(event.currentTarget.value))} />
               <strong className="audio-control-value">{Math.round(volume * 100)}%</strong>
             </label>
             <label className="audio-control-label">
               <span>速度</span>
               <input
                 type="range"
-                min={0.75}
-                max={2}
-                step={0.05}
+                min={0.5}
+                max={3}
+                step={0.25}
                 value={playbackRate}
                 onChange={(event) => onPlaybackRateChange(Number(event.currentTarget.value))}
               />
@@ -281,15 +330,26 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
                 </button>
               </label>
               {!isMobileWorkspace ? (
-                <label className="toggle-row toggle-row-compact control-inline-toggle">
-                  <input
-                    type="checkbox"
-                    checked={autoAdvance}
-                    onChange={(event) => onAutoAdvanceChange(event.currentTarget.checked)}
-                    disabled={!isInitialized}
-                  />
-                  <span>自動送り</span>
-                </label>
+                <>
+                  <label className="toggle-row toggle-row-compact control-inline-toggle">
+                    <input
+                      type="checkbox"
+                      checked={autoAdvance}
+                      onChange={(event) => onAutoAdvanceChange(event.currentTarget.checked)}
+                      disabled={!isInitialized}
+                    />
+                    <span>自動送り</span>
+                  </label>
+                  <label className="toggle-row toggle-row-compact control-inline-toggle">
+                    <input
+                      type="checkbox"
+                      checked={playSyncEnabled}
+                      onChange={(event) => onPlaySyncEnabledChange(event.currentTarget.checked)}
+                      disabled={!isInitialized}
+                    />
+                    <span>再生同期</span>
+                  </label>
+                </>
               ) : null}
             </div>
 
@@ -303,6 +363,15 @@ export function SessionTopPanel(props: SessionTopPanelProps) {
                     disabled={!isInitialized}
                   />
                   <span>自動送り</span>
+                </label>
+                <label className="toggle-row toggle-row-compact control-inline-toggle">
+                  <input
+                    type="checkbox"
+                    checked={playSyncEnabled}
+                    onChange={(event) => onPlaySyncEnabledChange(event.currentTarget.checked)}
+                    disabled={!isInitialized}
+                  />
+                  <span>再生同期</span>
                 </label>
                 <button
                   className={`icon-button favorite-button mobile-favorite-button${isFavorited ? " is-active" : ""}`}

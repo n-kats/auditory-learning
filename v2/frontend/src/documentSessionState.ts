@@ -13,6 +13,7 @@ export type DocumentSessionFlowState = {
   totalCostUsd: number;
   jumpPageValue: string;
   explanation: string;
+  speechText: string;
   imageUrl: string | null;
   audioUrl: string | null;
   error: string | null;
@@ -40,6 +41,7 @@ export function createDocumentSessionFlowState(params?: Partial<DocumentSessionF
     totalCostUsd: params?.totalCostUsd ?? 0,
     jumpPageValue: params?.jumpPageValue ?? "1",
     explanation: params?.explanation ?? "",
+    speechText: params?.speechText ?? "",
     imageUrl: params?.imageUrl ?? null,
     audioUrl: params?.audioUrl ?? null,
     error: params?.error ?? null,
@@ -52,6 +54,10 @@ export function createDocumentSessionFlowState(params?: Partial<DocumentSessionF
     isFavorited: params?.isFavorited ?? false,
     activeLoadId: params?.activeLoadId ?? null,
   };
+}
+
+function isUploadSourceUrl(sourceUrl: string): boolean {
+  return sourceUrl.startsWith("upload://");
 }
 
 export type DocumentSessionFlowEvent =
@@ -69,6 +75,7 @@ export type DocumentSessionFlowEvent =
       page: number;
       load_id: number;
       explanation: string;
+      speech_text: string;
       audio_status: "ready" | "failed";
       audio_error?: string | null;
     }
@@ -78,6 +85,7 @@ export type DocumentSessionFlowEvent =
       page: number;
       load_id: number;
       explanation: string;
+      speech_text: string;
       image_url: string;
       audio_url: string | null;
       audio_status: "ready" | "failed";
@@ -86,7 +94,7 @@ export type DocumentSessionFlowEvent =
   | { type: "page_load_failed"; request_id: string; page: number; load_id: number; error: string }
   | { type: "generation_started"; request_id: string; page: number }
   | { type: "generation_finished"; request_id: string; page: number }
-  | { type: "favorite_toggled"; request_id: string; is_favorited: boolean }
+  | { type: "favorite_toggled"; request_id: string; is_favorited: boolean; page_num?: number }
   | { type: "favorite_failed"; error: string }
   | { type: "ws_event"; event: SessionSyncEvent };
 
@@ -103,6 +111,10 @@ export function applyDocumentSessionFlowEvent(
         audioStatusText: "",
         audioStatusError: null,
         generationStatusText: "",
+        speechText: "",
+        explanation: "",
+        imageUrl: null,
+        audioUrl: null,
         isInitializing: true,
         isLoadingPage: false,
         isRegenerating: false,
@@ -117,6 +129,7 @@ export function applyDocumentSessionFlowEvent(
         audioStatusText: "",
         audioStatusError: null,
         generationStatusText: "",
+        speechText: "",
         isInitializing: false,
         isLoadingPage: false,
         isRegenerating: false,
@@ -125,7 +138,7 @@ export function applyDocumentSessionFlowEvent(
     case "start_succeeded":
       return {
         ...state,
-        draftUrl: event.source_url,
+        draftUrl: isUploadSourceUrl(event.source_url) ? "" : event.source_url,
         sourceUrl: event.source_url,
         requestId: event.request_id,
         maxPage: event.page_num,
@@ -137,6 +150,7 @@ export function applyDocumentSessionFlowEvent(
         totalCostUsd: 0,
         jumpPageValue: "1",
         explanation: "",
+        speechText: "",
         imageUrl: null,
         audioUrl: null,
         error: null,
@@ -154,7 +168,7 @@ export function applyDocumentSessionFlowEvent(
       const nextMaxPage = event.snapshot.page_num ?? 1;
       return {
         ...state,
-        draftUrl: event.snapshot.source_url,
+        draftUrl: isUploadSourceUrl(event.snapshot.source_url) ? "" : event.snapshot.source_url,
         sourceUrl: event.snapshot.source_url,
         requestId: event.snapshot.request_id,
         maxPage: nextMaxPage,
@@ -166,6 +180,7 @@ export function applyDocumentSessionFlowEvent(
         totalCostUsd: event.snapshot.total_cost_usd ?? state.totalCostUsd,
         jumpPageValue: String(nextPage),
         explanation: "",
+        speechText: "",
         imageUrl: null,
         audioUrl: null,
         error: null,
@@ -186,6 +201,7 @@ export function applyDocumentSessionFlowEvent(
         currentPage: event.page,
         jumpPageValue: String(event.page),
         explanation: "",
+        speechText: "",
         imageUrl: null,
         error: null,
         audioUrl: null,
@@ -194,6 +210,7 @@ export function applyDocumentSessionFlowEvent(
         generationStatusText: "",
         isLoadingPage: !event.regenerate,
         isRegenerating: event.regenerate,
+        isFavorited: event.page === state.currentPage ? state.isFavorited : false,
         activeLoadId: event.load_id,
       };
     case "page_image_loaded":
@@ -223,6 +240,7 @@ export function applyDocumentSessionFlowEvent(
         currentPage: event.page,
         jumpPageValue: String(event.page),
         explanation: event.explanation,
+        speechText: event.speech_text,
         error: null,
         audioStatusText: event.audio_status === "failed" ? "音声:失敗" : "音声:ok",
         audioStatusError: event.audio_error ?? null,
@@ -240,6 +258,7 @@ export function applyDocumentSessionFlowEvent(
         currentPage: event.page,
         jumpPageValue: String(event.page),
         explanation: event.explanation,
+        speechText: event.speech_text,
         imageUrl: event.image_url,
         audioUrl: event.audio_url,
         error: null,
@@ -286,6 +305,9 @@ export function applyDocumentSessionFlowEvent(
         generationStatusText: "",
       };
     case "favorite_toggled":
+      if (event.page_num !== undefined && event.page_num !== state.currentPage) {
+        return state;
+      }
       if (state.requestId !== null && state.requestId !== event.request_id) {
         return state;
       }
@@ -319,9 +341,13 @@ export function applyDocumentSessionFlowEvent(
           requestId: event.event.request_id,
           currentPage: event.event.current_page,
           jumpPageValue: String(event.event.current_page),
+          isFavorited: event.event.is_favorited ?? state.isFavorited,
         };
       }
       if (event.event.type === "favorite_toggled") {
+        if (event.event.page_num !== undefined && event.event.page_num !== state.currentPage) {
+          return state;
+        }
         return {
           ...state,
           requestId: event.event.request_id,

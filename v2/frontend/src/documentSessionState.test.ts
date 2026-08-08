@@ -22,6 +22,7 @@ describe("documentSessionState", () => {
         page: 1,
         load_id: 1,
         explanation: "hello",
+        speech_text: "hello speech",
         image_url: "blob:image",
         audio_url: "blob:audio",
         audio_status: "ready",
@@ -54,6 +55,7 @@ describe("documentSessionState", () => {
       totalCostUsd: 0,
       jumpPageValue: "4",
       explanation: "hello",
+      speechText: "hello speech",
       imageUrl: "blob:image",
       audioUrl: "blob:audio",
       error: null,
@@ -88,6 +90,36 @@ describe("documentSessionState", () => {
     expect(nextState).toBe(state);
   });
 
+  it("clears draft url when the source is an uploaded pdf", () => {
+    const state = simulateDocumentSessionFlow([
+      { type: "start_requested", draft_url: "sample.pdf" },
+      { type: "start_succeeded", request_id: "session-1", source_url: "upload://session-1/sample.pdf", page_num: 12 },
+    ]);
+
+    expect(state.draftUrl).toBe("");
+    expect(state.sourceUrl).toBe("upload://session-1/sample.pdf");
+  });
+
+  it("clears media state when a new session starts", () => {
+    const state = applyDocumentSessionFlowEvent(
+      createDocumentSessionFlowState({
+        requestId: "session-1",
+        currentPage: 3,
+        explanation: "old explanation",
+        speechText: "old speech",
+        imageUrl: "blob:old-image",
+        audioUrl: "blob:old-audio",
+      }),
+      { type: "start_requested", draft_url: "https://arxiv.org/pdf/2604.16347" },
+    );
+
+    expect(state.explanation).toBe("");
+    expect(state.speechText).toBe("");
+    expect(state.imageUrl).toBeNull();
+    expect(state.audioUrl).toBeNull();
+    expect(state.isInitializing).toBe(true);
+  });
+
   it("ignores stale page load results after a newer load starts", () => {
     const state = simulateDocumentSessionFlow([
       { type: "start_requested", draft_url: "https://arxiv.org/pdf/2604.16347" },
@@ -100,6 +132,7 @@ describe("documentSessionState", () => {
         page: 1,
         load_id: 1,
         explanation: "stale",
+        speech_text: "stale speech",
         image_url: "blob:old-image",
         audio_url: "blob:old-audio",
         audio_status: "ready",
@@ -110,6 +143,7 @@ describe("documentSessionState", () => {
         page: 2,
         load_id: 2,
         explanation: "fresh",
+        speech_text: "fresh speech",
         image_url: "blob:new-image",
         audio_url: "blob:new-audio",
         audio_status: "ready",
@@ -163,13 +197,14 @@ describe("documentSessionState", () => {
     const state = simulateDocumentSessionFlow([
       { type: "start_requested", draft_url: "https://arxiv.org/pdf/2604.16347" },
       { type: "start_succeeded", request_id: "session-1", source_url: "https://arxiv.org/pdf/2604.16347", page_num: 12 },
-      { type: "favorite_toggled", request_id: "session-1", is_favorited: true },
+      { type: "favorite_toggled", request_id: "session-1", is_favorited: true, page_num: 1 },
       {
         type: "ws_event",
         event: {
           type: "favorite_toggled",
           request_id: "session-1",
           is_favorited: false,
+          page_num: 1,
         },
       },
     ]);
@@ -236,14 +271,16 @@ describe("documentSessionState", () => {
       request_id: "session-1",
       page: 2,
       load_id: 1,
-      explanation: "streamed explanation",
-      audio_status: "ready",
+        explanation: "streamed explanation",
+        speech_text: "streamed speech",
+        audio_status: "ready",
     });
 
     expect(stateAfterImage.imageUrl).toBe("blob:image");
     expect(stateAfterImage.explanation).toBe("");
     expect(stateAfterExplanation.imageUrl).toBe("blob:image");
     expect(stateAfterExplanation.explanation).toBe("streamed explanation");
+    expect(stateAfterExplanation.speechText).toBe("streamed speech");
     expect(stateAfterExplanation.audioStatusText).toBe("音声:ok");
   });
 

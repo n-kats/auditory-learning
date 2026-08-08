@@ -1,9 +1,14 @@
 # Directory Structure
 
 ## バックエンド
-- `auditory_learning/server.py`: FastAPI エントリーポイント。画像生成と VOICEVOX 合成を順序制御。
-- `auditory_learning/utils/`: GPT プロンプト処理や音声変換の補助モジュール。共通ロジックはここへ集約。
-- `_data/`: PDF、画像、音声などの実行時キャッシュ。削除可能だがコミット禁止。
+- `v1/`: 従来版 PDF 解説アプリのプロジェクトルート。
+- `v1/auditory_learning/server.py`: v1 の FastAPI エントリーポイント。画像生成と VOICEVOX 合成を順序制御。
+- `v1/auditory_learning/utils/`: v1 の GPT プロンプト処理や音声変換の補助モジュール。
+- `v1/pyproject.toml`: v1 backend の Python プロジェクト設定。
+- `v1/frontend/`: v1 の React 実装本体。
+- `v1/docker/Dockerfile`: v1 のローカル開発用イメージ定義。
+- `prompt_for_v1.txt`: v1 の既定解説プロンプト。
+- `_data/v1/`: v1 の PDF、画像、音声などを保存する実行時データ置き場。削除・移動せず、コミットもしない。
 - `quick-auditory-learning/`: arXiv JSONL ベースの別系統アプリのプロジェクトルート。
 - `quick-auditory-learning/backend/src/quick_auditory_learning/`: arXiv JSONL 取り込みと検索、音声再生を扱う別系統の FastAPI 実装本体。
 - `quick-auditory-learning/backend/docker/`: quick プロジェクト用の backend イメージ定義を置く。
@@ -29,17 +34,17 @@
 - `_tmp/quick_auditory_learning/logs/`: quick プロジェクト専用の実行ログ。backend のファイルログを置く。
 
 ## フロントエンド
-- `frontend/src/`: React + Mantine UI の実装。状態管理や API 呼び出しをここで完結させる。
-- `frontend/dist/`: `npm run build` で生成される静的成果物。手動編集禁止。
+- `v1/frontend/src/`: v1 の React + Mantine UI 実装。状態管理や API 呼び出しをここで完結させる。
+- `v1/frontend/dist/`: v1 frontend の `npm run build` で生成される静的成果物。手動編集禁止。
 
 ## ツールとスクリプト
-- `scripts/launch.sh`: Docker ビルドとサーバ起動のエントリ。CI 相当の再現手順。
-- `scripts/serve.sh`: ローカル用の uv 同期と frontend ビルドを束ねる。
+- `scripts/launch_v1.sh`: v1 の Docker ビルドとサーバ起動のエントリ。
+- `scripts/serve_v1.sh`: v1 のローカル用 uv 同期と frontend ビルドを束ねる。
 - `scripts/launch_quick_auditory_learning.sh`: quick プロジェクト用の Docker Compose 起動エントリ。
 - `scripts/down_quick_auditory_learning.sh`: quick プロジェクト用の Docker Compose 停止エントリ。
 - `scripts/launch_v2.sh`: v2 プロジェクト用の Docker Compose 起動エントリ。
 - `scripts/down_v2.sh`: v2 プロジェクト用の Docker Compose 停止エントリ。
-- `Makefile`: lint/format/test の共通コマンド。
+- `Makefile`: v1、quick、v2 の lint/format/test 入口を分けた共通コマンド。
 
 ## ドキュメント
 - `docs/images/`: UI スクリーンショット等のアセット。

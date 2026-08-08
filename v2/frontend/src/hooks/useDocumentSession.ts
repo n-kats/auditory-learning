@@ -7,12 +7,13 @@ import {
   type FormEvent,
   type RefObject,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 import {
   fetchSessionSettings,
   updateSessionSettings,
+  notifyPlaybackStarted,
+  notifyPlaybackStopped,
   toWebSocketUrl,
   type SessionSyncEvent,
 } from "../api";
@@ -28,6 +29,7 @@ import {
   regenerateDocumentPage,
   resumeDocumentSessionByRequestId,
   startDocumentSession,
+  startDocumentSessionFromUpload,
   toggleDocumentFavorite,
 } from "../documentSessionActions";
 import {
@@ -46,13 +48,15 @@ type LoadPageOptions = {
   requestId: string;
   page: number;
   regenerate?: boolean;
+  fromSync?: boolean;
 };
 
 export type DocumentSessionState = {
   draftUrl: string;
   draftExplainPromptText: string;
-  draftSpeekPromptText: string;
+  draftSpeakPromptText: string;
   draftModelName: string;
+  draftReasoningEffort: string;
   sourceUrl: string;
   requestId: string | null;
   maxPage: number;
@@ -63,10 +67,12 @@ export type DocumentSessionState = {
   totalOutputTokens: number;
   totalCostUsd: number;
   explanation: string;
+  speechText: string;
   deferredExplanation: string;
   imageUrl: string | null;
   audioUrl: string | null;
   autoAdvance: boolean;
+  playSyncEnabled: boolean;
   jumpPageValue: string;
   isInitializing: boolean;
   isLoadingPage: boolean;
@@ -86,10 +92,11 @@ export type DocumentSessionState = {
   canRegenerate: boolean;
   isBusy: boolean;
   isSavingSessionSettings: boolean;
+  hasUnsavedChanges: boolean;
   isMainCollapsed: boolean;
   isPreviewCollapsed: boolean;
   workspaceGridColumns: string;
-  onPreviewWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
+  onPreviewWheel: (event: WheelEvent) => void;
   previewPanX: number;
   previewPanY: number;
   speakerEnabled: boolean;
@@ -103,9 +110,11 @@ export type DocumentSessionActions = {
   workspaceGridRef: RefObject<HTMLElement | null>;
   setDraftUrl: (value: string) => void;
   setDraftExplainPromptText: (value: string) => void;
-  setDraftSpeekPromptText: (value: string) => void;
+  setDraftSpeakPromptText: (value: string) => void;
   setDraftModelName: (value: string) => void;
+  setDraftReasoningEffort: (value: string) => void;
   setAutoAdvance: (value: boolean) => void;
+  setPlaySyncEnabled: (value: boolean) => void;
   setJumpPageValue: (value: string) => void;
   setMobileWorkspaceTab: (value: "explanation" | "preview") => void;
   setWorkspaceSplit: (value: number) => void;
@@ -116,6 +125,7 @@ export type DocumentSessionActions = {
   toggleFavorite: () => Promise<void>;
   saveSessionSettings: () => Promise<void>;
   startDocument: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  startDocumentFromUpload: (file: File) => Promise<void>;
   resumeDocumentByRequestId: (requestId: string) => Promise<void>;
   movePage: (page: number) => Promise<void>;
   jumpPage: () => Promise<void>;
@@ -130,17 +140,24 @@ export function useDocumentSession(): UseDocumentSessionResult {
   const [flowState, setFlowState] = useState(() => createDocumentSessionFlowState());
   const deferredExplanation = useDeferredValue(flowState.explanation);
   const [autoAdvance, setAutoAdvance] = useState(false);
-  const [draftModelName, setDraftModelName] = useState("gpt-5.4-mini");
   const [mobileWorkspaceTab, setMobileWorkspaceTab] = useState<"explanation" | "preview">("explanation");
   const [isSavingSessionSettings, setIsSavingSessionSettings] = useState(false);
+  const [playSyncEnabled, setPlaySyncEnabled] = useState(true);
+  const [savedSettings, setSavedSettings] = useState({ promptExplainText: "", promptSpeakText: "", modelName: "", reasoningEffort: "" });
   const sessionSyncRef = useRef<DocumentSessionSyncState>(createDocumentSessionSyncState());
   const {
     defaultExplainPromptText,
-    defaultSpeekPromptText,
+    defaultSpeakPromptText,
+    defaultModelName,
+    defaultReasoningEffort,
     draftExplainPromptText,
-    draftSpeekPromptText,
+    draftSpeakPromptText,
+    draftModelName,
+    draftReasoningEffort,
     setDraftExplainPromptText,
-    setDraftSpeekPromptText,
+    setDraftSpeakPromptText,
+    setDraftModelName,
+    setDraftReasoningEffort,
   } = usePromptTemplate();
   const {
     isMobileWorkspace,
@@ -176,8 +193,9 @@ export function useDocumentSession(): UseDocumentSessionResult {
           maxPage: next.maxPage,
           isFavorited: next.isFavorited,
           promptExplainText: previousSyncState.promptExplainText,
-          promptSpeekText: previousSyncState.promptSpeekText,
+          promptSpeakText: previousSyncState.promptSpeakText,
           modelName: previousSyncState.modelName,
+          reasoningEffort: previousSyncState.reasoningEffort,
           totalGenerationCount: next.totalGenerationCount,
           totalGenerationElapsedMs: next.totalGenerationElapsedMs,
           totalInputTokens: next.totalInputTokens,
@@ -209,6 +227,7 @@ export function useDocumentSession(): UseDocumentSessionResult {
     totalOutputTokens,
     totalCostUsd,
     explanation,
+    speechText,
     imageUrl,
     audioUrl,
     jumpPageValue,
@@ -246,6 +265,9 @@ export function useDocumentSession(): UseDocumentSessionResult {
   const loadPage = async (options: LoadPageOptions): Promise<void> => {
     resetPreviewZoom();
     resetPreviewPan();
+    if (!options.fromSync) {
+      void notifyPlaybackStarted(options.requestId, options.page).catch(() => undefined);
+    }
     await loadDocumentPage({
       requestId: options.requestId,
       page: options.page,
@@ -274,6 +296,7 @@ export function useDocumentSession(): UseDocumentSessionResult {
   useEffect(() => {
     if (!requestId) {
       setFlowState((current) => (current.isFavorited ? { ...current, isFavorited: false } : current));
+      setSavedSettings({ promptExplainText: "", promptSpeakText: "", modelName: "", reasoningEffort: "" });
       return;
     }
 
@@ -285,8 +308,15 @@ export function useDocumentSession(): UseDocumentSessionResult {
           return;
         }
         setDraftExplainPromptText(settings.prompt_explain_text);
-        setDraftSpeekPromptText(settings.prompt_speek_text);
-        setDraftModelName(settings.model_name);
+        setDraftSpeakPromptText(settings.prompt_speak_text);
+        if (settings.model_name) setDraftModelName(settings.model_name);
+        if (settings.reasoning_effort) setDraftReasoningEffort(settings.reasoning_effort);
+        setSavedSettings({
+          promptExplainText: settings.prompt_explain_text,
+          promptSpeakText: settings.prompt_speak_text,
+          modelName: settings.model_name ?? "",
+          reasoningEffort: settings.reasoning_effort ?? "",
+        });
       } catch {
         // ignore settings fetch errors for now
       }
@@ -314,6 +344,18 @@ export function useDocumentSession(): UseDocumentSessionResult {
           }
           if (message.type === "generation_finished") {
             dispatchFlowEvent({ type: "generation_finished", request_id: message.request_id, page: message.page_num });
+            return;
+          }
+          if (message.type === "playback_started") {
+            if (playSyncEnabled) {
+              void loadPage({ requestId: message.request_id, page: message.page_num, fromSync: true });
+            }
+            return;
+          }
+          if (message.type === "playback_stopped") {
+            if (playSyncEnabled) {
+              handleStopPlayback(true);
+            }
             return;
           }
           const nextState = applyDocumentSessionSyncEvent(sessionSyncRef.current, message);
@@ -349,14 +391,30 @@ export function useDocumentSession(): UseDocumentSessionResult {
               totalCostUsd: nextState.totalCostUsd,
             };
           });
+          const hasSettingsFields =
+            "prompt_explain_text" in message ||
+            "prompt_speak_text" in message ||
+            "model_name" in message ||
+            "reasoning_effort" in message;
           if ("prompt_explain_text" in message && typeof message.prompt_explain_text === "string") {
             setDraftExplainPromptText(message.prompt_explain_text);
           }
-          if ("prompt_speek_text" in message && typeof message.prompt_speek_text === "string") {
-            setDraftSpeekPromptText(message.prompt_speek_text);
+          if ("prompt_speak_text" in message && typeof message.prompt_speak_text === "string") {
+            setDraftSpeakPromptText(message.prompt_speak_text);
           }
           if ("model_name" in message && typeof message.model_name === "string") {
             setDraftModelName(message.model_name);
+          }
+          if ("reasoning_effort" in message && typeof message.reasoning_effort === "string") {
+            setDraftReasoningEffort(message.reasoning_effort);
+          }
+          if (hasSettingsFields) {
+            setSavedSettings({
+              promptExplainText: "prompt_explain_text" in message && typeof message.prompt_explain_text === "string" ? message.prompt_explain_text : "",
+              promptSpeakText: "prompt_speak_text" in message && typeof message.prompt_speak_text === "string" ? message.prompt_speak_text : "",
+              modelName: "model_name" in message && typeof message.model_name === "string" ? message.model_name : "",
+              reasoningEffort: "reasoning_effort" in message && typeof message.reasoning_effort === "string" ? message.reasoning_effort : "",
+            });
           }
         } catch {
           // ignore malformed ws payloads
@@ -412,19 +470,37 @@ export function useDocumentSession(): UseDocumentSessionResult {
   const canGoNext = isInitialized && currentPage < maxPage && !isLoadingPage && !isInitializing;
   const canRegenerate = isInitialized && !isLoadingPage && !isInitializing && !isRegenerating;
   const isBusy = isInitializing || isLoadingPage || isRegenerating;
+  const hasUnsavedChanges =
+    isInitialized &&
+    (draftExplainPromptText !== savedSettings.promptExplainText ||
+      draftSpeakPromptText !== savedSettings.promptSpeakText ||
+      draftModelName !== savedSettings.modelName ||
+      draftReasoningEffort !== savedSettings.reasoningEffort);
 
   const handleStart = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedUrl = draftUrl.trim();
     const effectiveExplainPromptText =
       draftExplainPromptText.trim().length > 0 ? draftExplainPromptText : defaultExplainPromptText;
-    const effectiveSpeekPromptText =
-      draftSpeekPromptText.trim().length > 0 ? draftSpeekPromptText : defaultSpeekPromptText;
+    const effectiveSpeakPromptText =
+      draftSpeakPromptText.trim().length > 0 ? draftSpeakPromptText : defaultSpeakPromptText;
     await startDocumentSession({
       trimmedUrl,
       effectiveExplainPromptText,
-      effectiveSpeekPromptText,
-      effectiveModelName: draftModelName.trim() || "gpt-5.4-mini",
+      effectiveSpeakPromptText,
+      effectiveModelName: draftModelName.trim() || defaultModelName,
+      effectiveReasoningEffort: draftReasoningEffort.trim() || defaultReasoningEffort,
+      deps: documentSessionDeps,
+    });
+  };
+
+  const handleStartFromUpload = async (file: File) => {
+    await startDocumentSessionFromUpload({
+      file,
+      effectiveExplainPromptText: draftExplainPromptText.trim().length > 0 ? draftExplainPromptText : defaultExplainPromptText,
+      effectiveSpeakPromptText: draftSpeakPromptText.trim().length > 0 ? draftSpeakPromptText : defaultSpeakPromptText,
+      effectiveModelName: draftModelName.trim() || defaultModelName,
+      effectiveReasoningEffort: draftReasoningEffort.trim() || defaultReasoningEffort,
       deps: documentSessionDeps,
     });
   };
@@ -464,18 +540,21 @@ export function useDocumentSession(): UseDocumentSessionResult {
     });
   };
 
-  const handleStopPlayback = () => {
+  const handleStopPlayback = (fromSync = false) => {
     const audioElement = audioRef.current;
     if (audioElement) {
       audioElement.pause();
-      audioElement.currentTime = 0;
     }
     setSpeakerEnabled(false);
+    if (!fromSync && requestId) {
+      void notifyPlaybackStopped(requestId).catch(() => undefined);
+    }
   };
 
   const handleToggleFavorite = async () => {
     await toggleDocumentFavorite({
       requestId,
+      pageNum: currentPage,
       dispatchFlowEvent,
     });
   };
@@ -488,12 +567,20 @@ export function useDocumentSession(): UseDocumentSessionResult {
     try {
       const response = await updateSessionSettings(requestId, {
         prompt_explain_text: draftExplainPromptText,
-        prompt_speek_text: draftSpeekPromptText,
+        prompt_speak_text: draftSpeakPromptText,
         model_name: draftModelName,
+        reasoning_effort: draftReasoningEffort,
       });
       setDraftExplainPromptText(response.prompt_explain_text);
-      setDraftSpeekPromptText(response.prompt_speek_text);
-      setDraftModelName(response.model_name);
+      setDraftSpeakPromptText(response.prompt_speak_text);
+      if (response.model_name) setDraftModelName(response.model_name);
+      if (response.reasoning_effort) setDraftReasoningEffort(response.reasoning_effort);
+      setSavedSettings({
+        promptExplainText: response.prompt_explain_text,
+        promptSpeakText: response.prompt_speak_text,
+        modelName: response.model_name ?? "",
+        reasoningEffort: response.reasoning_effort ?? "",
+      });
     } finally {
       setIsSavingSessionSettings(false);
     }
@@ -504,8 +591,9 @@ export function useDocumentSession(): UseDocumentSessionResult {
     workspaceGridRef,
     draftUrl,
     draftExplainPromptText,
-    draftSpeekPromptText,
+    draftSpeakPromptText,
     draftModelName,
+    draftReasoningEffort,
     sourceUrl,
     requestId,
     maxPage,
@@ -516,10 +604,12 @@ export function useDocumentSession(): UseDocumentSessionResult {
     totalOutputTokens,
     totalCostUsd,
     explanation,
+    speechText,
     deferredExplanation,
     imageUrl,
     audioUrl,
     autoAdvance,
+    playSyncEnabled,
     jumpPageValue,
     isInitializing,
     isLoadingPage,
@@ -537,6 +627,7 @@ export function useDocumentSession(): UseDocumentSessionResult {
     canGoNext,
     canRegenerate,
     isBusy,
+    hasUnsavedChanges,
     isSavingSessionSettings,
     isMainCollapsed,
     isPreviewCollapsed,
@@ -553,9 +644,11 @@ export function useDocumentSession(): UseDocumentSessionResult {
     onPreviewPointerDown,
     setDraftUrl,
     setDraftExplainPromptText,
-    setDraftSpeekPromptText,
+    setDraftSpeakPromptText,
     setDraftModelName,
+    setDraftReasoningEffort,
     setAutoAdvance,
+    setPlaySyncEnabled,
     setJumpPageValue,
     setMobileWorkspaceTab,
     setSpeakerEnabled,
@@ -564,6 +657,7 @@ export function useDocumentSession(): UseDocumentSessionResult {
     toggleFavorite: handleToggleFavorite,
     saveSessionSettings: handleSaveSessionSettings,
     startDocument: handleStart,
+    startDocumentFromUpload: handleStartFromUpload,
     resumeDocumentByRequestId: handleResumeByRequestId,
     movePage: handleMovePage,
     jumpPage: handleJumpPage,

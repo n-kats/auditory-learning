@@ -1,12 +1,15 @@
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { SessionSummary } from "../api";
+import { ControlIcon } from "./ControlIcon";
+import { buildPaperLabel } from "../utils/appText";
 
 type SessionDirectoryProps = {
   draftUrl: string;
   draftExplainPromptText: string;
-  draftSpeekPromptText: string;
+  draftSpeakPromptText: string;
   modelName: string;
+  reasoningEffort: string;
   sessions: SessionSummary[];
   currentSessionId: string | null;
   isInitializing: boolean;
@@ -15,9 +18,11 @@ type SessionDirectoryProps = {
   onContinue: (session: SessionSummary) => void;
   onDraftUrlChange: (value: string) => void;
   onDraftExplainPromptTextChange: (value: string) => void;
-  onDraftSpeekPromptTextChange: (value: string) => void;
+  onDraftSpeakPromptTextChange: (value: string) => void;
   onModelNameChange: (value: string) => void;
+  onReasoningEffortChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onUpload: (file: File) => void;
 };
 
 function formatSessionLabel(session: SessionSummary): string {
@@ -30,8 +35,9 @@ export function SessionDirectory(props: SessionDirectoryProps) {
   const {
     draftUrl,
     draftExplainPromptText,
-    draftSpeekPromptText,
+    draftSpeakPromptText,
     modelName,
+    reasoningEffort,
     sessions,
     currentSessionId,
     isInitializing,
@@ -40,12 +46,15 @@ export function SessionDirectory(props: SessionDirectoryProps) {
     onContinue,
     onDraftUrlChange,
     onDraftExplainPromptTextChange,
-    onDraftSpeekPromptTextChange,
+    onDraftSpeakPromptTextChange,
     onModelNameChange,
+    onReasoningEffortChange,
     onSubmit,
+    onUpload,
   } = props;
 
   const [showAllSessions, setShowAllSessions] = useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
   const visibleSessions = useMemo(
     () => (showAllSessions ? sessions : sessions.slice(0, 1)),
     [sessions, showAllSessions],
@@ -74,6 +83,36 @@ export function SessionDirectory(props: SessionDirectoryProps) {
           </label>
         </form>
 
+        <div className="start-upload-row">
+          <button
+            type="button"
+            className="start-button upload-start-button"
+            disabled={isInitializing || selectedPdfFile === null}
+            onClick={() => {
+              if (!selectedPdfFile) {
+                return;
+              }
+              onUpload(selectedPdfFile);
+            }}
+          >
+            {isInitializing ? "処理中..." : "Up&開始"}
+          </button>
+          <input
+            id="start-upload-input"
+            className="upload-input"
+            type="file"
+            accept="application/pdf"
+            onChange={(event) => setSelectedPdfFile(event.currentTarget.files?.[0] ?? null)}
+          />
+          <label className="ghost-button" htmlFor="start-upload-input">
+            <ControlIcon kind="upload" />
+            PDF を選ぶ
+          </label>
+          <span className="upload-selected-name">
+            {selectedPdfFile ? `選択中: ${selectedPdfFile.name}` : ""}
+          </span>
+        </div>
+
         <details className="search-details">
           <summary>詳細</summary>
           <div className="panel search-panel">
@@ -90,8 +129,8 @@ export function SessionDirectory(props: SessionDirectoryProps) {
               <label className="field prompt-field">
                 <span>読み上げ用プロンプト</span>
                 <textarea
-                  value={draftSpeekPromptText}
-                  onChange={(event) => onDraftSpeekPromptTextChange(event.currentTarget.value)}
+                  value={draftSpeakPromptText}
+                  onChange={(event) => onDraftSpeakPromptTextChange(event.currentTarget.value)}
                   rows={10}
                   spellCheck={false}
                 />
@@ -100,6 +139,10 @@ export function SessionDirectory(props: SessionDirectoryProps) {
             <label className="field model-field">
               <span>モデル</span>
               <input type="text" value={modelName} onChange={(event) => onModelNameChange(event.currentTarget.value)} />
+            </label>
+            <label className="field model-field">
+              <span>Reasoning Effort</span>
+              <input type="text" value={reasoningEffort} onChange={(event) => onReasoningEffortChange(event.currentTarget.value)} placeholder="例: low, medium, high" />
             </label>
           </div>
         </details>
@@ -137,7 +180,7 @@ export function SessionDirectory(props: SessionDirectoryProps) {
                 </button>
                 <div className={`session-item${session.request_id === currentSessionId ? " is-current" : ""}`}>
                   <div className="session-item-main">
-                    <p className="directory-item-url">{session.source_url}</p>
+                    <p className="directory-item-url">{buildPaperLabel(session.source_url) ?? session.source_url}</p>
                     <p className="directory-item-meta">{formatSessionLabel(session)} ・ 更新 {session.updated_at}</p>
                   </div>
                 </div>

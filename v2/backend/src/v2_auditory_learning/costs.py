@@ -3,6 +3,10 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 
 _COMPLETION_PRICES_USD_PER_MILLION_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
+    "gpt-5.6": (Decimal("5.00"), Decimal("30.00")),
+    "gpt-5.6-sol": (Decimal("5.00"), Decimal("30.00")),
+    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
     "gpt-5.4": (Decimal("1.75"), Decimal("14.00")),
     "gpt-5.4-mini": (Decimal("0.75"), Decimal("4.50")),
     "gpt-5.4-nano": (Decimal("0.20"), Decimal("1.25")),

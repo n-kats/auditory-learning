@@ -8,5 +8,10 @@ def test_estimate_completion_cost_usd_uses_gpt_5_4_mini_price() -> None:
     assert cost == Decimal("0.009750")
 
 
+def test_estimate_completion_cost_usd_uses_gpt_5_6_luna_price() -> None:
+    cost = estimate_completion_cost_usd("gpt-5.6-luna", 1000, 2000)
+    assert cost == Decimal("0.002600")
+
+
 def test_estimate_completion_cost_usd_returns_zero_for_unknown_model() -> None:
     assert estimate_completion_cost_usd("unknown-model", 1000, 2000) == Decimal("0")

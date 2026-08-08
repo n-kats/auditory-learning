@@ -65,6 +65,11 @@ export default function App() {
     navigateTo("session");
   };
 
+  const handleUploadDocument = async (file: File) => {
+    await session.startDocumentFromUpload(file);
+    navigateTo("session");
+  };
+
   const handleResumeDocument = async (snapshot: SessionSummary) => {
     await session.resumeDocumentByRequestId(snapshot.request_id);
     navigateTo("session");
@@ -122,8 +127,9 @@ export default function App() {
             draftUrl={session.draftUrl}
             currentSessionId={session.requestId}
             draftExplainPromptText={session.draftExplainPromptText}
-            draftSpeekPromptText={session.draftSpeekPromptText}
+            draftSpeakPromptText={session.draftSpeakPromptText}
             modelName={session.draftModelName}
+            reasoningEffort={session.draftReasoningEffort}
             sessions={directory.sessions}
             isInitializing={session.isInitializing}
             isLoadingSessions={directory.isLoading}
@@ -133,10 +139,14 @@ export default function App() {
             }}
             onDraftUrlChange={session.setDraftUrl}
             onDraftExplainPromptTextChange={session.setDraftExplainPromptText}
-            onDraftSpeekPromptTextChange={session.setDraftSpeekPromptText}
+            onDraftSpeakPromptTextChange={session.setDraftSpeakPromptText}
             onModelNameChange={session.setDraftModelName}
+            onReasoningEffortChange={session.setDraftReasoningEffort}
             onSubmit={(event) => {
               void handleStartDocument(event);
+            }}
+            onUpload={(file) => {
+              void handleUploadDocument(file);
             }}
           />
         )}

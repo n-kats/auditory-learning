@@ -4,20 +4,32 @@ import { fetchDefaultPrompt, isNetworkFetchError } from "../api";
 
 type UsePromptTemplateResult = {
   defaultExplainPromptText: string;
-  defaultSpeekPromptText: string;
+  defaultSpeakPromptText: string;
+  defaultModelName: string;
+  defaultReasoningEffort: string;
   draftExplainPromptText: string;
-  draftSpeekPromptText: string;
+  draftSpeakPromptText: string;
+  draftModelName: string;
+  draftReasoningEffort: string;
   setDraftExplainPromptText: (value: string) => void;
-  setDraftSpeekPromptText: (value: string) => void;
+  setDraftSpeakPromptText: (value: string) => void;
+  setDraftModelName: (value: string) => void;
+  setDraftReasoningEffort: (value: string) => void;
 };
 
 export function usePromptTemplate(): UsePromptTemplateResult {
   const [defaultExplainPromptText, setDefaultExplainPromptText] = useState("");
-  const [defaultSpeekPromptText, setDefaultSpeekPromptText] = useState("");
+  const [defaultSpeakPromptText, setDefaultSpeakPromptText] = useState("");
+  const [defaultModelName, setDefaultModelName] = useState("");
+  const [defaultReasoningEffort, setDefaultReasoningEffort] = useState("");
   const [draftExplainPromptText, setDraftExplainPromptText] = useState("");
-  const [draftSpeekPromptText, setDraftSpeekPromptText] = useState("");
+  const [draftSpeakPromptText, setDraftSpeakPromptText] = useState("");
+  const [draftModelName, setDraftModelName] = useState("");
+  const [draftReasoningEffort, setDraftReasoningEffort] = useState("");
   const explainPromptDirtyRef = useRef(false);
-  const speekPromptDirtyRef = useRef(false);
+  const speakPromptDirtyRef = useRef(false);
+  const modelNameDirtyRef = useRef(false);
+  const reasoningEffortDirtyRef = useRef(false);
   const promptLoadRetryRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -34,12 +46,20 @@ export function usePromptTemplate(): UsePromptTemplateResult {
           promptLoadRetryRef.current = null;
         }
         setDefaultExplainPromptText(response.prompt_explain_text);
-        setDefaultSpeekPromptText(response.prompt_speek_text);
+        setDefaultSpeakPromptText(response.prompt_speak_text);
+        setDefaultModelName(response.model_name);
+        setDefaultReasoningEffort(response.reasoning_effort);
         if (!explainPromptDirtyRef.current) {
           setDraftExplainPromptText(response.prompt_explain_text);
         }
-        if (!speekPromptDirtyRef.current) {
-          setDraftSpeekPromptText(response.prompt_speek_text);
+        if (!speakPromptDirtyRef.current) {
+          setDraftSpeakPromptText(response.prompt_speak_text);
+        }
+        if (!modelNameDirtyRef.current) {
+          setDraftModelName(response.model_name);
+        }
+        if (!reasoningEffortDirtyRef.current) {
+          setDraftReasoningEffort(response.reasoning_effort);
         }
       } catch (error) {
         if (canceled) {
@@ -54,8 +74,8 @@ export function usePromptTemplate(): UsePromptTemplateResult {
         if (!explainPromptDirtyRef.current) {
           setDraftExplainPromptText("");
         }
-        if (!speekPromptDirtyRef.current) {
-          setDraftSpeekPromptText("");
+        if (!speakPromptDirtyRef.current) {
+          setDraftSpeakPromptText("");
         }
       }
     };
@@ -73,16 +93,28 @@ export function usePromptTemplate(): UsePromptTemplateResult {
 
   return {
     defaultExplainPromptText,
-    defaultSpeekPromptText,
+    defaultSpeakPromptText,
+    defaultModelName,
+    defaultReasoningEffort,
     draftExplainPromptText,
-    draftSpeekPromptText,
+    draftSpeakPromptText,
+    draftModelName,
+    draftReasoningEffort,
     setDraftExplainPromptText: (value: string) => {
       explainPromptDirtyRef.current = true;
       setDraftExplainPromptText(value);
     },
-    setDraftSpeekPromptText: (value: string) => {
-      speekPromptDirtyRef.current = true;
-      setDraftSpeekPromptText(value);
+    setDraftSpeakPromptText: (value: string) => {
+      speakPromptDirtyRef.current = true;
+      setDraftSpeakPromptText(value);
+    },
+    setDraftModelName: (value: string) => {
+      modelNameDirtyRef.current = true;
+      setDraftModelName(value);
+    },
+    setDraftReasoningEffort: (value: string) => {
+      reasoningEffortDirtyRef.current = true;
+      setDraftReasoningEffort(value);
     },
   };
 }

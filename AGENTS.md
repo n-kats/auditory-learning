@@ -18,9 +18,11 @@
 この章はリポジトリの地図であり、「どこに何があるか」と「どの情報をどこに置くか」を説明する。
 構成変更があった場合は `docs/directory_structure.md` を先に更新し、この章も最新状態に保つ。
 
-- `auditory_learning/`: FastAPI バックエンド本体。`server.py` がエントリポイントで、共通処理は `utils/` に集約する。
-- `frontend/src/`: React + TypeScript + Mantine UI の実装本体。状態管理や API 呼び出しをここで完結させる。
-- `frontend/dist/`: `npm run build` で生成される静的成果物。手動編集は禁止する。
+- `v1/`: 従来版 PDF 解説アプリのプロジェクトルート。`v1/auditory_learning/server.py` が FastAPI のエントリポイント。
+- `v1/auditory_learning/`: v1 の FastAPI バックエンド本体。共通処理は `utils/` に集約する。
+- `v1/frontend/src/`: v1 の React + TypeScript + Mantine UI 実装本体。状態管理や API 呼び出しをここで完結させる。
+- `v1/frontend/dist/`: v1 の `npm run build` で生成される静的成果物。手動編集は禁止する。
+- `v1/docker/`: v1 の Docker イメージ定義を置く。
 - `quick-auditory-learning/`: arXiv JSONL ベースの別系統アプリのプロジェクトルート。
 - `quick-auditory-learning/backend/src/quick_auditory_learning/`: arXiv JSONL の取り込み、検索、再生キューを扱う quick プロジェクトの backend 本体。
 - `quick-auditory-learning/frontend/`: quick プロジェクト用の React + Vite UI 実装。
@@ -29,13 +31,13 @@
 - `docs/directory_structure.md`: 最新のディレクトリ構成と置き場の正のソース。
 - `docs/workflows/`: 手順追加のワークフローガイドを置く。
 - `docs/images/`: UI スクリーンショットなどの画像アセットを置く。
-- `scripts/`: 起動や補助のスクリプトを置く。`launch.sh` は Docker 起動、`serve.sh` はローカル開発用、`launch_quick_auditory_learning.sh` と `down_quick_auditory_learning.sh` は quick プロジェクト用。
-- `_data/`: PDF、画像、音声などの実行時キャッシュ。削除可能だがコミット禁止。
-- `tests/`: pytest のテスト置き場。新規テストはここに追加する。
+- `scripts/`: 起動や補助のスクリプトを置く。`launch_v1.sh` と `serve_v1.sh` は v1 用、`launch_quick_auditory_learning.sh` と `down_quick_auditory_learning.sh` は quick プロジェクト用。
+- `_data/v1/`: v1 の PDF、画像、音声などを保存する実行時データ置き場。削除・移動しない。コミットもしない。
+- `tests/`: quick など repository-level の pytest テスト置き場。v1 専用テストは `v1/tests/`、v2 専用テストは `v2/backend/tests/` に置く。
 - `_local/`: ローカル専用補助。コミットしない。テンプレートや個人設定を置く。
 - `_worklist/`: TODO、進捗、決定事項、未決、確認手順を置く作業ログ。作業単位で更新する。
-- `docker/`: Docker 関連の定義を置く。
-- `README.md`: 利用方法、制限、起動手順の入口。
+- `README.md`: 各プロジェクトへの入口となる概要。
+- `v1/README.md`: v1 の利用方法、制限、起動手順。
 - `Makefile`: lint、format、test の共通コマンド定義。
 
 ## 禁止事項・非推奨事項
@@ -48,7 +50,7 @@
 - 成果物にメタ発言を書かない。会話へのコメント、自己言及、読者誘導、スコープ宣言は入れない。
 - コミット、プッシュ、PR 作成は、明示的な指示がない限り行わない。
 - 仕様に書いていない fallback を実装・表示・通信に追加することは厳禁。
-- `_data/` と `frontend/dist/` は生成物の扱いとし、必要がなければ触らず、コミット対象にも含めない。
+- `_data/` は実行時データ置き場として必要がなければ触らず、コミット対象にも含めない。`v1/frontend/dist/` は生成物として手動編集せず、コミット対象にも含めない。
 - 既存の未整理な変更がある場合は、差分を確認してから扱い、安易に `git` コマンドを乱用しない。
 
 ## 基本ワークフロー
@@ -76,7 +78,7 @@
 - Mantine テーマ変数でスタイルを揃え、フロントエンドの lint を通す。
 
 ## テストガイドライン
-- `tests/` に `test_<module>.py` を作成する。
+- v1 のテストは `v1/tests/`、repository-level のテストは `tests/` に `test_<module>.py` を作成する。
 - ファイルシステム操作は一時ディレクトリを fixture で差し替える。
 - OpenAI、VOICEVOX、PDF ダウンロードはモックし、キュー処理やキャッシュ生成を検証する。
 - 変更範囲に対して十分なカバレッジを意識し、必要に応じて `pytest --cov=auditory_learning` を確認する。
@@ -86,10 +88,10 @@
 以下は人間向けの参考情報であり、状況に応じて使い分ける。
 
 ```bash
-make lint
-make format
-make test
-bash scripts/launch.sh
-(cd frontend && npm run dev)
-(cd frontend && npm run build)
+make v1-lint
+make v1-format
+make v1-test
+bash scripts/launch_v1.sh
+(cd v1/frontend && npm run dev)
+(cd v1/frontend && npm run build)
 ```

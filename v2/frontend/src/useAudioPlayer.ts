@@ -14,6 +14,14 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
   const [volume, setVolume] = useState(() => loadVolume(window.localStorage.getItem("v2_audio_volume")));
   const [playbackRate, setPlaybackRate] = useState(() => loadPlaybackRate(window.localStorage.getItem("v2_audio_rate")));
 
+  const applyAudioSettings = (audio: HTMLAudioElement) => {
+    const nextVolume = clampVolume(volume);
+    const nextPlaybackRate = clampPlaybackRate(playbackRate);
+    audio.volume = nextVolume;
+    audio.defaultPlaybackRate = nextPlaybackRate;
+    audio.playbackRate = nextPlaybackRate;
+  };
+
   const handleEnded = useEffectEvent(() => {
     setIsPlaying(false);
     options.onEnded();
@@ -53,26 +61,26 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     if (!audio) {
       return;
     }
-    audio.volume = clampVolume(volume);
+    applyAudioSettings(audio);
     window.localStorage.setItem("v2_audio_volume", String(volume));
-  }, [volume]);
+  }, [volume, playbackRate]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) {
       return;
     }
-    audio.playbackRate = clampPlaybackRate(playbackRate);
+    applyAudioSettings(audio);
     window.localStorage.setItem("v2_audio_rate", String(playbackRate));
-  }, [playbackRate]);
+  }, [volume, playbackRate]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) {
       return;
     }
-    audio.volume = clampVolume(volume);
-    audio.playbackRate = clampPlaybackRate(playbackRate);
+
+    applyAudioSettings(audio);
 
     if (!options.src) {
       audio.pause();
@@ -89,7 +97,7 @@ export function useAudioPlayer(options: UseAudioPlayerOptions) {
     void audio.play().catch(() => {
       setIsPlaying(false);
     });
-  }, [options.src, playbackRate, speakerEnabled, volume]);
+  }, [options.src, speakerEnabled]);
 
   return {
     audioRef,

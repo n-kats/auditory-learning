@@ -22,12 +22,14 @@ describe("documentSessionSync", () => {
       type: "page_updated",
       request_id: "session-1",
       current_page: 7,
+      is_favorited: false,
     });
 
     const finalState = applyDocumentSessionSyncEvent(nextState, {
       type: "favorite_toggled",
       request_id: "session-1",
       is_favorited: false,
+      page_num: 7,
     });
 
     expect(finalState).toEqual({
@@ -36,8 +38,9 @@ describe("documentSessionSync", () => {
       maxPage: 12,
       isFavorited: false,
       promptExplainText: "",
-      promptSpeekText: "",
+      promptSpeakText: "",
       modelName: "",
+      reasoningEffort: "",
       totalGenerationCount: 5,
       totalGenerationElapsedMs: 1200,
       totalInputTokens: 200,

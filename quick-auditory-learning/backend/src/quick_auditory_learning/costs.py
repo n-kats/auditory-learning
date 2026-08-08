@@ -9,6 +9,10 @@ _EMBEDDING_PRICES_USD_PER_MILLION_TOKENS: dict[str, Decimal] = {
 }
 
 _COMPLETION_PRICES_USD_PER_MILLION_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
+    "gpt-5.6": (Decimal("5.00"), Decimal("30.00")),
+    "gpt-5.6-sol": (Decimal("5.00"), Decimal("30.00")),
+    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
     "gpt-5": (Decimal("1.25"), Decimal("10.00")),
     "gpt-5-mini": (Decimal("0.25"), Decimal("2.00")),
     "gpt-5-nano": (Decimal("0.05"), Decimal("0.40")),
