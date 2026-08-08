@@ -33,7 +33,7 @@ bash scripts/down_v2.sh
 | 変数 | 説明 | 既定値 |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | OpenAI API キー。解説生成に必要です。 | なし |
-| `AUDITORY_LEARNING_V2_HOST` | ブラウザからアクセスするホスト名または IP アドレス。通常は `localhost` を設定します。 | `.env` で設定 |
+| `AUDITORY_LEARNING_V2_HOST` | ブラウザからアクセスするホスト名または IP アドレスです。別の PC やスマートフォンからアクセスする場合に、その端末から見えるホスト名または IP アドレスへ変更します。 | `localhost` |
 | `AUDITORY_LEARNING_V2_BACKEND_PORT` | backend のホスト側ポートです。 | `8000` |
 | `AUDITORY_LEARNING_V2_FRONTEND_PORT` | frontend のホスト側ポートです。 | `5174` |
 | `AUDITORY_LEARNING_V2_DATA_DIR` | コンテナ内で PDF、画像、説明文、音声などを保存する場所です。 | `/workspace/_data/v2_auditory_learning` |

@@ -18,6 +18,8 @@ elif [ -f .env ]; then
   echo ".env exists but is not readable; continuing without it" >&2
 fi
 
+export AUDITORY_LEARNING_V2_HOST="${AUDITORY_LEARNING_V2_HOST:-localhost}"
+
 mkdir -p "${AUDITORY_LEARNING_V2_DATA_DIR_HOST:-$(pwd)/_data/v2_auditory_learning}"
 mkdir -p "${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-$(pwd)/_cache/v2-auditory-learning}/backend/uv_venv"
 mkdir -p "${AUDITORY_LEARNING_V2_CACHE_DIR_HOST:-$(pwd)/_cache/v2-auditory-learning}/backend/uv_cache"
