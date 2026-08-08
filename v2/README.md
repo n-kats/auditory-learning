@@ -26,32 +26,34 @@ bash scripts/down_v2.sh
 
 ## 環境変数
 
-- `OPENAI_API_KEY`
-- `AUDITORY_LEARNING_V2_DATA_DIR`
-- `AUDITORY_LEARNING_V2_POSTGRES_DSN`
-- `AUDITORY_LEARNING_V2_POSTGRES_DB`
-- `AUDITORY_LEARNING_V2_POSTGRES_USER`
-- `AUDITORY_LEARNING_V2_POSTGRES_PASSWORD`
-- `AUDITORY_LEARNING_V2_HOST`
-- `AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH`
-- `AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH`
-- `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME`
-- `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT`
-- `AUDITORY_LEARNING_V2_VOICEVOX_URL`
-- `AUDITORY_LEARNING_V2_FALLBACK_VOICEVOX_URL`
-- `AUDITORY_LEARNING_V2_FRONTEND_URL`
-- `AUDITORY_LEARNING_V2_BACKEND_PORT`
-- `AUDITORY_LEARNING_V2_FRONTEND_PORT`
-- `AUDITORY_LEARNING_V2_DATA_DIR_HOST`
-- `AUDITORY_LEARNING_V2_POSTGRES_DATA_HOST`
-- `AUDITORY_LEARNING_V2_CACHE_DIR_HOST`
+ワークスペース直下の `.env` に設定を書きます。`bash scripts/launch_v2.sh` はこの `.env` を読み込み、Docker Compose に渡します。`OPENAI_API_KEY` は解説生成に必要です。
 
-既定値は `v2/docker-compose.yml` と scripts 側にあります。
-`AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` が指すファイルの内容を、解説用の既定プロンプトとして使います。`AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH` が指すファイルの内容を、読み上げ用の既定プロンプトとして使います。どちらも相対パスはリポジトリルート基準で解決します。環境変数は `scripts/launch_v2.sh` と `docker compose` で渡します。backend は `.env` を直接読みません。frontend には backend の絶対 URL を `VITE_AUDITORY_LEARNING_V2_API_BASE_URL` で渡します。backend の CORS は `AUDITORY_LEARNING_V2_FRONTEND_URL` を優先し、必要なら `AUDITORY_LEARNING_V2_HOST` から同一 host の任意 port を許可します。`localhost` への既定値は置いていません。
-`AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` は session の既定モデル名です。既定は `gpt-5.6-luna` です。
-`AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` は session の既定 reasoning effort です。既定は `medium` です。
-`AUDITORY_LEARNING_V2_VOICEVOX_URL` が有効ならそれを使い、無効なら `AUDITORY_LEARNING_V2_FALLBACK_VOICEVOX_URL` を使います。
-開始画面では URL からの開始に加えて PDF ファイルのアップロード開始もできます。
+既定値は `v2/docker-compose.yml` と `scripts/launch_v2.sh` にあります。利用者が設定できる変数は次のとおりです。
+
+| 変数 | 説明 | 既定値 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | OpenAI API キー。解説生成に必要です。 | なし |
+| `AUDITORY_LEARNING_V2_HOST` | ブラウザからアクセスするホスト名または IP アドレス。通常は `localhost` を設定します。 | `.env` で設定 |
+| `AUDITORY_LEARNING_V2_BACKEND_PORT` | backend のホスト側ポートです。 | `8000` |
+| `AUDITORY_LEARNING_V2_FRONTEND_PORT` | frontend のホスト側ポートです。 | `5174` |
+| `AUDITORY_LEARNING_V2_DATA_DIR` | コンテナ内で PDF、画像、説明文、音声などを保存する場所です。 | `/workspace/_data/v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_DATA_DIR_HOST` | 実行時データを保存するホスト側の場所です。 | `../_data/v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_CACHE_DIR_HOST` | backend の仮想環境・uv キャッシュと frontend の依存パッケージ・npm キャッシュを保存するホスト側の場所です。 | `../_cache/v2-auditory-learning` |
+| `AUDITORY_LEARNING_V2_POSTGRES_DSN` | backend が接続する Postgres の接続先です。DB 名、ユーザー、パスワードを変更する場合はこの値も合わせて変更します。 | `postgresql://v2_auditory_learning:v2_auditory_learning@postgres:5432/v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_POSTGRES_DB` | Postgres のデータベース名です。 | `v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_POSTGRES_USER` | Postgres のユーザー名です。 | `v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_POSTGRES_PASSWORD` | Postgres のパスワードです。 | `v2_auditory_learning` |
+| `AUDITORY_LEARNING_V2_POSTGRES_DATA_HOST` | Postgres のデータを保存するホスト側の場所です。 | `../_data/v2_auditory_learning/postgres` |
+| `AUDITORY_LEARNING_V2_PROMPT_EXPLAIN_PATH` | 解説用の既定プロンプトのファイルです。相対パスはリポジトリルート基準で解決します。 | `prompt_explain.txt` |
+| `AUDITORY_LEARNING_V2_PROMPT_SPEAK_PATH` | 読み上げ用の既定プロンプトのファイルです。相対パスはリポジトリルート基準で解決します。 | `prompt_speak.txt` |
+| `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME` | 新しい session で使う解説生成モデルです。 | `gpt-5.6-luna` |
+| `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT` | 新しい session で使う reasoning effort です。 | `medium` |
+| `AUDITORY_LEARNING_V2_VOICEVOX_URL` | 接続先として優先する VOICEVOX URL です。空の場合は fallback を使います。 | なし |
+| `AUDITORY_LEARNING_V2_FALLBACK_VOICEVOX_URL` | 優先 URL が未設定または利用できない場合の VOICEVOX URL です。 | `http://voicevox:50021` |
+
+`AUDITORY_LEARNING_V2_FRONTEND_URL` は backend の CORS 設定用で、Compose が `AUDITORY_LEARNING_V2_HOST` と `AUDITORY_LEARNING_V2_FRONTEND_PORT` から生成します。`VITE_AUDITORY_LEARNING_V2_API_BASE_URL` は frontend が backend に接続する URL で、Compose が `AUDITORY_LEARNING_V2_HOST` と `AUDITORY_LEARNING_V2_BACKEND_PORT` から生成します。通常、この 2 つを `.env` に直接書く必要はありません。
+
+`AUDITORY_LEARNING_V2_DATA_DIR_HOST`、`AUDITORY_LEARNING_V2_POSTGRES_DATA_HOST`、`AUDITORY_LEARNING_V2_CACHE_DIR_HOST` はホスト側の保存場所です。相対パスを指定した場合は Compose の起動位置を基準に解決されます。
 
 ## backend の同期と favorite
 

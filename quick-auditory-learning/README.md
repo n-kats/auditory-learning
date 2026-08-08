@@ -37,33 +37,54 @@
 
 ワークスペース直下の `.env` に設定を書きます。`bash scripts/launch_quick_auditory_learning.sh` はこの `.env` を読み込みます。
 
+最低限、OpenAI API キーと JSONL の場所を設定します。
+
 ```dotenv
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 QUICK_AUDITORY_LEARNING_JSONL_PATH=_data/quick_auditory_learning/arxiv.jsonl
-QUICK_AUDITORY_LEARNING_HOST=localhost
-QUICK_AUDITORY_LEARNING_BACKEND_PORT=8000
-QUICK_AUDITORY_LEARNING_FRONTEND_PORT=5173
-QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME=text-embedding-3-large
-QUICK_AUDITORY_LEARNING_VOICEVOX_URL=
-QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL=http://voicevox:50021
 ```
 
-- 必須: `OPENAI_API_KEY` または `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY`。検索と解説生成を使うときに、どちらか一方を設定する。両方ある場合は `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` を優先する。（規定値: なし）
-- 任意: `QUICK_AUDITORY_LEARNING_JSONL_PATH`。既定の `_data/quick_auditory_learning/arxiv.jsonl` 以外に JSONL を置くときに設定する。（規定値: `_data/quick_auditory_learning/arxiv.jsonl`）
-- 任意: `QUICK_AUDITORY_LEARNING_HOST`。別 PC やスマホからアクセスするとき、または `localhost` 以外のホスト名や IP アドレスで開きたいときに設定する。（規定値: `localhost`）
-- 任意: `QUICK_AUDITORY_LEARNING_BACKEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `8000`）
-- 任意: `QUICK_AUDITORY_LEARNING_FRONTEND_PORT`。別のアプリとポートがぶつかるときに設定する。（規定値: `5173`）
-- 任意: `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME`。検索で使う埋め込みモデル名を変えるときに設定する。（規定値: `text-embedding-3-large`）
-- 任意: `QUICK_AUDITORY_LEARNING_LLM_MODEL`。解説生成で使うモデルを変えるときに設定する。（規定値: `gpt-5.6-luna`）
-- 任意: `QUICK_AUDITORY_LEARNING_REASONING_EFFORT`。解説・検索補助生成の reasoning effort を設定する。（規定値: `medium`）
-- 任意: `QUICK_AUDITORY_LEARNING_VOICEVOX_URL`。別の VOICEVOX エンジン URL を使うときに設定する。（規定値: なし）
-- 任意: `QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL`。`QUICK_AUDITORY_LEARNING_VOICEVOX_URL` が未設定のときに使う VOICEVOX エンジン URL。（規定値: `http://voicevox:50021`）
+利用できる環境変数は次のとおりです。
+
+| 変数 | 説明 | 既定値 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | OpenAI API キーです。検索、解説生成、検索補助生成に必要です。 | なし |
+| `QUICK_AUDITORY_LEARNING_OPENAI_API_KEY` | quick 専用の OpenAI API キーです。`OPENAI_API_KEY` より優先されます。 | なし |
+| `QUICK_AUDITORY_LEARNING_JSONL_PATH` | 取り込む arXiv メタデータ JSONL の場所です。起動スクリプトが相対パスをホスト側の絶対パスに変換します。 | `_data/quick_auditory_learning/arxiv.jsonl` |
+| `QUICK_AUDITORY_LEARNING_JSONL_DIR_HOST` | JSONL の親ディレクトリを Docker に読み取り専用で bind mount するホスト側の場所です。通常は起動スクリプトが JSONL の場所から決めます。 | JSONL の親ディレクトリ |
+| `QUICK_AUDITORY_LEARNING_HOST` | ブラウザからアクセスするホスト名または IP アドレスです。 | `localhost` |
+| `QUICK_AUDITORY_LEARNING_BACKEND_PORT` | backend のホスト側ポートです。 | `8000` |
+| `QUICK_AUDITORY_LEARNING_FRONTEND_PORT` | frontend のホスト側ポートです。 | `5173` |
+| `QUICK_AUDITORY_LEARNING_DATA_DIR` | コンテナ内で永続データを保存する場所です。 | `/workspace/_data/quick_auditory_learning` |
+| `QUICK_AUDITORY_LEARNING_DATA_DIR_HOST` | Postgres などの永続データを保存するホスト側の場所です。 | `../_data/quick_auditory_learning` |
+| `QUICK_AUDITORY_LEARNING_CACHE_DIR` | コンテナ内の再生成可能なキャッシュの場所です。 | `/workspace/_cache/quick-auditory-learning` |
+| `QUICK_AUDITORY_LEARNING_CACHE_DIR_HOST` | backend の仮想環境・uv キャッシュと frontend の node_modules を保存するホスト側の場所です。 | `../_cache/quick-auditory-learning` |
+| `QUICK_AUDITORY_LEARNING_LOG_DIR` | backend のログを保存するコンテナ内の場所です。 | `/workspace/_tmp/quick_auditory_learning/logs` |
+| `QUICK_AUDITORY_LEARNING_LOG_DIR_HOST` | ログを保存するホスト側の場所です。 | `../_tmp/quick_auditory_learning/logs` |
+| `QUICK_AUDITORY_LEARNING_POSTGRES_DSN` | backend が接続する Postgres の接続先です。 | `postgresql://quick_auditory_learning:quick_auditory_learning@db:5432/quick_auditory_learning` |
+| `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME` | 論文検索に使う embedding モデルです。 | `text-embedding-3-large` |
+| `QUICK_AUDITORY_LEARNING_LLM_MODEL` | 解説と検索補助生成に使う completion model です。 | `gpt-5.6-luna` |
+| `QUICK_AUDITORY_LEARNING_REASONING_EFFORT` | 解説と検索補助生成の reasoning effort です。 | `medium` |
+| `QUICK_AUDITORY_LEARNING_VOICEVOX_URL` | 接続先として優先する VOICEVOX URL です。空の場合は fallback を使います。 | なし |
+| `QUICK_AUDITORY_LEARNING_FALLBACK_VOICEVOX_URL` | 優先 URL が未設定または利用できない場合の VOICEVOX URL です。 | `http://voicevox:50021` |
+
+`QUICK_AUDITORY_LEARNING_FRONTEND_URL` は backend の CORS 設定用で、Compose が host と frontend port から生成します。`VITE_API_BASE_URL` は frontend が backend に接続する URL で、Compose が host と backend port から生成します。`VITE_QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME` は frontend の検索フォームに渡す embedding model 名で、Compose が `QUICK_AUDITORY_LEARNING_EMBEDDING_MODEL_NAME` から生成します。通常、これら 3 つを `.env` に直接書く必要はありません。
+
+backend を Docker Compose 以外で直接起動する場合は、次の VOICEVOX 設定も使えます。`QUICK_AUDITORY_LEARNING_` 付きの名前を優先し、短い名前は別名です。
+
+| 変数 | 説明 | 既定値 |
+| --- | --- | --- |
+| `QUICK_AUDITORY_LEARNING_VOICEVOX_SPEAKER_ID` / `VOICEVOX_SPEAKER_ID` | VOICEVOX の fallback 話者 ID です。 | `1` |
+| `QUICK_AUDITORY_LEARNING_VOICEVOX_SPEED_SCALE` / `VOICEVOX_SPEED_SCALE` | VOICEVOX の読み上げ速度です。 | `1.25` |
+| `QUICK_AUDITORY_LEARNING_VOICEVOX_VOLUME_SCALE` / `VOICEVOX_VOLUME_SCALE` | VOICEVOX の音量です。 | `1.0` |
 
 別 PC やスマホから開くときは、その端末から見えるホスト名か IP アドレスを `QUICK_AUDITORY_LEARNING_HOST` に入れます。`localhost` は自分の端末を指します。
 
 家の中や社内などのローカルネットワーク内だけで使うなら、その範囲からだけ見えるホスト名か IP アドレスを使い、外部公開は避けてください。外部ネットワークから公開する場合は、必要なポートだけを開け、Docker のポート公開設定、OS のファイアウォール、ルータの転送設定を確認してください。
 
 `.env` を使わずに環境変数で直接渡しても構いませんが、起動スクリプトを使う場合はワークスペース直下の `.env` を置くのが最も簡単です。
+
+`bash scripts/launch_quick_auditory_learning.sh --dev` を使う場合、`QUICK_AUDITORY_LEARNING_DATA_DIR`、`QUICK_AUDITORY_LEARNING_CACHE_DIR`、`QUICK_AUDITORY_LEARNING_LOG_DIR`、`QUICK_AUDITORY_LEARNING_JSONL_PATH` などの未設定値は `_dev` 用の場所に切り替わります。
 
 ## 4.1 LLM モデル候補
 

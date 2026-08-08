@@ -34,6 +34,8 @@
 * `AUDITORY_LEARNING_V2_DEFAULT_MODEL_NAME`
 * `AUDITORY_LEARNING_V2_DEFAULT_REASONING_EFFORT`
 
+全ての環境変数と既定値は [v2/README.md](v2/README.md) を参照してください。
+
 #### 起動
 
 ```
@@ -92,6 +94,8 @@ Kaggle の `arxiv-dataset` を使う場合は、[Kaggle の arxiv データセ�
 * 解説生成モデル: `gpt-5.6-luna`
 * reasoning effort: `medium`
 
+全ての環境変数と既定値は [quick-auditory-learning/README.md](quick-auditory-learning/README.md) を参照してください。
+
 #### 起動
 
 ```
@@ -116,7 +120,6 @@ $ bash ./scripts/down_quick_auditory_learning.sh
 
 * arXiv メタデータの JSONL ファイルが必要です。
 * JSONL は 1 行 1 JSON の形式で用意してください。
-* 詳細なデータ準備、環境変数、モデル候補は [quick-auditory-learning/README.md](quick-auditory-learning/README.md) を参照してください。
 
 ## 過去バージョンについて
 
